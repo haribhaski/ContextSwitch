@@ -1,20 +1,19 @@
 from typing import List
 from pydantic import BaseModel
-
-
-class Change(BaseModel):
-    type: str
-    description: str
-    source: str
-    evidence_id: str
-
+from typing import List
 
 class TaskUpdate(BaseModel):
     task: str
     previous_status: str
     current_status: str
     reason: str
+    evidence_ids: List[str] = []
 
+class Change(BaseModel):
+    type: str
+    description: str
+    source: str
+    evidence_id: str
 
 class WhereYouLeftOff(BaseModel):
     goal: str
