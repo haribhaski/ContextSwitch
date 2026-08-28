@@ -1,0 +1,87 @@
+# =========================
+# Secrets / Environment
+# =========================
+.env
+.env.*
+!.env.example
+contextswitch/.env
+contextswitch/.env.*
+
+# Google credentials / service accounts
+*service-account*.json
+*credentials*.json
+application_default_credentials.json
+/google-cloud-sdk/
+# =========================
+# Python
+# =========================
+venv/
+.venv/
+env/
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+
+# =========================
+# Next.js / Node
+# =========================
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Frontend environment files
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Google ADK
+# =========================
+/google-cloud-adk/
+
+# ADK runtime/session data if generated
+.adk/
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# macOS
+# =========================
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.temp
+*.log
+
+# =========================
+# Local databases / caches
+# =========================
+*.db
+*.sqlite
+*.sqlite3
+.cache/
