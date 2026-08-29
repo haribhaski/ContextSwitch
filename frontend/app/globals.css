@@ -1,26 +1,1664 @@
 @import "tailwindcss";
 
+/* ============================================================
+   CONTEXTSWITCH DESIGN SYSTEM
+   ============================================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --cs-bg: #f8fafd;
+  --cs-surface: #ffffff;
+  --cs-surface-soft: #f8fafd;
+
+  --cs-text: #1f1f1f;
+  --cs-text-secondary: #5f6368;
+  --cs-text-muted: #80868b;
+
+  --cs-border: #e0e3e7;
+  --cs-border-strong: #c7c9cc;
+
+  --cs-blue: #0b57d0;
+  --cs-blue-hover: #0842a0;
+  --cs-blue-soft: #e8f0fe;
+
+  --cs-green: #188038;
+  --cs-green-soft: #e6f4ea;
+
+  --cs-orange: #b06000;
+  --cs-orange-soft: #fef7e0;
+
+  --cs-red: #b3261e;
+  --cs-red-soft: #fce8e6;
+
+  --cs-sidebar-width: 248px;
+
+  --cs-shadow:
+    0 1px 2px rgba(60, 64, 67, 0.08),
+    0 1px 3px rgba(60, 64, 67, 0.06);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+html.dark {
+  --cs-bg: #111315;
+  --cs-surface: #1b1d20;
+  --cs-surface-soft: #202225;
+
+  --cs-text: #e8eaed;
+  --cs-text-secondary: #bdc1c6;
+  --cs-text-muted: #9aa0a6;
+
+  --cs-border: #34373b;
+  --cs-border-strong: #4b4f54;
+
+  --cs-blue: #a8c7fa;
+  --cs-blue-hover: #d3e3fd;
+  --cs-blue-soft: #253552;
+
+  --cs-green: #81c995;
+  --cs-green-soft: #16351f;
+
+  --cs-orange: #fdd663;
+  --cs-orange-soft: #3a3118;
+
+  --cs-red: #f28b82;
+  --cs-red-soft: #421f1d;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+
+* {
+  box-sizing: border-box;
 }
+
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--cs-bg);
+  color: var(--cs-text);
+  transition:
+    background-color 180ms ease,
+    color 180ms ease;
+}
+
+
+/* ============================================================
+   APP
+   ============================================================ */
+
+.cs-app {
+  min-height: 100vh;
+  background: var(--cs-bg);
+  color: var(--cs-text);
+}
+
+
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
+
+.cs-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+
+  width: var(--cs-sidebar-width);
+
+  display: flex;
+  flex-direction: column;
+
+  background: var(--cs-surface);
+  border-right: 1px solid var(--cs-border);
+
+  z-index: 50;
+}
+
+
+.cs-sidebar-header {
+  height: 72px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 0 18px;
+}
+
+
+.cs-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+
+  color: var(--cs-text);
+
+  text-decoration: none;
+
+  font-size: 18px;
+  font-weight: 500;
+
+  letter-spacing: -0.02em;
+}
+
+
+.cs-logo {
+  width: 34px;
+  height: 34px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 10px;
+
+  background: #0b57d0;
+  color: white;
+
+  font-size: 15px;
+  font-weight: 600;
+}
+
+
+.cs-mobile-close {
+  display: none;
+
+  border: 0;
+  background: transparent;
+
+  color: var(--cs-text-secondary);
+
+  cursor: pointer;
+}
+
+
+.cs-nav {
+  padding: 8px 12px;
+}
+
+
+.cs-nav-item {
+  width: 100%;
+  height: 44px;
+
+  display: flex;
+  align-items: center;
+  gap: 13px;
+
+  padding: 0 14px;
+
+  border: 0;
+  border-radius: 22px;
+
+  background: transparent;
+
+  color: var(--cs-text-secondary);
+
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+
+  cursor: pointer;
+
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+
+.cs-nav-item:hover {
+  background: var(--cs-surface-soft);
+  color: var(--cs-text);
+}
+
+
+.cs-nav-item.active {
+  background: var(--cs-blue-soft);
+  color: var(--cs-blue);
+}
+
+
+.cs-nav-badge {
+  margin-left: auto;
+
+  min-width: 22px;
+  height: 22px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 12px;
+
+  background: var(--cs-orange-soft);
+  color: var(--cs-orange);
+
+  font-size: 11px;
+  font-weight: 600;
+}
+
+
+.cs-sidebar-section {
+  margin-top: 24px;
+  padding: 0 12px;
+}
+
+
+.cs-sidebar-label {
+  padding: 0 14px 10px;
+
+  color: var(--cs-text-muted);
+
+  font-size: 11px;
+  font-weight: 600;
+
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+
+.cs-team-item,
+.cs-new-team {
+  width: 100%;
+  min-height: 40px;
+
+  display: flex;
+  align-items: center;
+  gap: 11px;
+
+  padding: 0 14px;
+
+  border: 0;
+  border-radius: 8px;
+
+  background: transparent;
+
+  color: var(--cs-text-secondary);
+
+  font: inherit;
+  font-size: 13px;
+
+  cursor: pointer;
+}
+
+
+.cs-team-item:hover,
+.cs-new-team:hover {
+  background: var(--cs-surface-soft);
+  color: var(--cs-text);
+}
+
+
+.cs-team-dot {
+  width: 8px;
+  height: 8px;
+
+  border-radius: 50%;
+}
+
+
+.cs-team-dot.blue {
+  background: #4285f4;
+}
+
+
+.cs-team-dot.green {
+  background: #34a853;
+}
+
+
+.cs-team-dot.orange {
+  background: #f9ab00;
+}
+
+
+.cs-new-team {
+  margin-top: 8px;
+
+  color: var(--cs-blue);
+  font-weight: 500;
+}
+
+
+.cs-sidebar-bottom {
+  margin-top: auto;
+
+  padding: 16px 12px 20px;
+
+  border-top: 1px solid var(--cs-border);
+}
+
+
+/* ============================================================
+   MAIN
+   ============================================================ */
+
+.cs-main {
+  min-height: 100vh;
+  margin-left: var(--cs-sidebar-width);
+}
+
+
+/* ============================================================
+   TOP BAR
+   ============================================================ */
+
+.cs-topbar {
+  position: sticky;
+  top: 0;
+
+  height: 72px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 0 28px;
+
+  border-bottom: 1px solid var(--cs-border);
+
+  background: color-mix(
+    in srgb,
+    var(--cs-bg) 92%,
+    transparent
+  );
+
+  backdrop-filter: blur(12px);
+
+  z-index: 30;
+}
+
+
+.cs-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  flex: 1;
+}
+
+
+.cs-menu-button {
+  display: none;
+
+  width: 40px;
+  height: 40px;
+
+  place-items: center;
+
+  border: 0;
+  border-radius: 50%;
+
+  background: transparent;
+  color: var(--cs-text);
+
+  cursor: pointer;
+}
+
+
+.cs-search {
+  width: min(620px, 60vw);
+  height: 46px;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 0 16px;
+
+  border: 1px solid transparent;
+  border-radius: 24px;
+
+  background: var(--cs-surface);
+
+  color: var(--cs-text-secondary);
+
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+
+.cs-search:focus-within {
+  border-color: var(--cs-blue);
+
+  box-shadow:
+    0 0 0 2px
+    color-mix(
+      in srgb,
+      var(--cs-blue) 14%,
+      transparent
+    );
+}
+
+
+.cs-search input {
+  flex: 1;
+
+  min-width: 0;
+
+  border: 0;
+  outline: 0;
+
+  background: transparent;
+  color: var(--cs-text);
+
+  font: inherit;
+  font-size: 14px;
+}
+
+
+.cs-search input::placeholder {
+  color: var(--cs-text-muted);
+}
+
+
+.cs-search kbd {
+  padding: 4px 7px;
+
+  border: 1px solid var(--cs-border);
+  border-radius: 6px;
+
+  background: var(--cs-surface-soft);
+
+  color: var(--cs-text-muted);
+
+  font-size: 11px;
+}
+
+
+.cs-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+
+.cs-icon-button {
+  position: relative;
+
+  width: 40px;
+  height: 40px;
+
+  display: grid;
+  place-items: center;
+
+  border: 0;
+  border-radius: 50%;
+
+  background: transparent;
+
+  color: var(--cs-text-secondary);
+
+  cursor: pointer;
+
+  transition: background 140ms ease;
+}
+
+
+.cs-icon-button:hover {
+  background: var(--cs-surface);
+}
+
+
+.cs-icon-button.subtle {
+  width: 34px;
+  height: 34px;
+}
+
+
+.cs-notification-dot {
+  position: absolute;
+
+  top: 9px;
+  right: 9px;
+
+  width: 7px;
+  height: 7px;
+
+  border: 2px solid var(--cs-bg);
+  border-radius: 50%;
+
+  background: #d93025;
+}
+
+
+/* ============================================================
+   THEME TOGGLE
+   ============================================================ */
+
+.cs-theme-toggle {
+  height: 36px;
+
+  display: flex;
+  align-items: center;
+  gap: 2px;
+
+  padding: 3px;
+
+  border: 1px solid var(--cs-border);
+  border-radius: 20px;
+
+  background: var(--cs-surface);
+
+  cursor: pointer;
+}
+
+
+.cs-theme-toggle span {
+  width: 28px;
+  height: 28px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 50%;
+
+  color: var(--cs-text-muted);
+
+  font-size: 15px;
+}
+
+
+.cs-theme-toggle span.active {
+  background: var(--cs-blue-soft);
+  color: var(--cs-blue);
+}
+
+
+/* ============================================================
+   PROFILE
+   ============================================================ */
+
+.cs-profile-wrapper {
+  position: relative;
+}
+
+
+.cs-profile {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+
+  padding: 3px 5px;
+
+  border: 0;
+  border-radius: 20px;
+
+  background: transparent;
+
+  color: var(--cs-text-secondary);
+
+  cursor: pointer;
+}
+
+
+.cs-profile:hover {
+  background: var(--cs-surface);
+}
+
+
+.cs-profile-image {
+  border-radius: 50%;
+}
+
+
+.cs-profile-fallback {
+  width: 34px;
+  height: 34px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 50%;
+
+  background: var(--cs-blue-soft);
+  color: var(--cs-blue);
+
+  font-size: 13px;
+  font-weight: 600;
+}
+
+
+.cs-profile-menu {
+  position: absolute;
+
+  top: 48px;
+  right: 0;
+
+  width: 300px;
+
+  padding: 10px;
+
+  border: 1px solid var(--cs-border);
+  border-radius: 14px;
+
+  background: var(--cs-surface);
+
+  box-shadow:
+    0 8px 28px rgba(
+      60,
+      64,
+      67,
+      0.18
+    );
+
+  z-index: 100;
+}
+
+
+.cs-profile-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 10px;
+}
+
+
+.cs-profile-name {
+  color: var(--cs-text);
+
+  font-size: 14px;
+  font-weight: 500;
+}
+
+
+.cs-profile-email {
+  margin-top: 2px;
+
+  color: var(--cs-text-muted);
+
+  font-size: 12px;
+}
+
+
+.cs-menu-divider {
+  height: 1px;
+
+  margin: 6px 0;
+
+  background: var(--cs-border);
+}
+
+
+.cs-profile-menu-item {
+  width: 100%;
+  height: 40px;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 0 10px;
+
+  border: 0;
+  border-radius: 8px;
+
+  background: transparent;
+
+  color: var(--cs-text-secondary);
+
+  font: inherit;
+  font-size: 13px;
+
+  cursor: pointer;
+}
+
+
+.cs-profile-menu-item:hover {
+  background: var(--cs-surface-soft);
+  color: var(--cs-text);
+}
+
+
+/* ============================================================
+   CONTENT
+   ============================================================ */
+
+.cs-content {
+  width: min(1400px, 100%);
+  margin: 0 auto;
+
+  padding: 42px 36px 80px;
+}
+
+
+.cs-welcome {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+
+  gap: 24px;
+
+  margin-bottom: 28px;
+}
+
+
+.cs-eyebrow {
+  margin: 0 0 8px;
+
+  color: var(--cs-blue);
+
+  font-size: 12px;
+  font-weight: 600;
+
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+
+.cs-welcome h1 {
+  margin: 0;
+
+  color: var(--cs-text);
+
+  font-size: 32px;
+  font-weight: 500;
+
+  letter-spacing: -0.035em;
+}
+
+
+.cs-welcome > div > p:last-child {
+  margin: 8px 0 0;
+
+  color: var(--cs-text-secondary);
+
+  font-size: 14px;
+}
+
+
+.cs-primary-button {
+  height: 42px;
+
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 0 18px;
+
+  border: 0;
+  border-radius: 21px;
+
+  background: #0b57d0;
+  color: white;
+
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+
+  cursor: pointer;
+
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+
+.cs-primary-button:hover {
+  background: #0842a0;
+
+  box-shadow:
+    0 2px 6px rgba(
+      11,
+      87,
+      208,
+      0.25
+    );
+}
+
+
+/* ============================================================
+   SUMMARY
+   ============================================================ */
+
+.cs-summary-strip {
+  display: grid;
+  grid-template-columns:
+    repeat(4, 1fr);
+
+  overflow: hidden;
+
+  margin-bottom: 42px;
+
+  border: 1px solid var(--cs-border);
+  border-radius: 14px;
+
+  background: var(--cs-surface);
+}
+
+
+.cs-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  min-height: 86px;
+
+  padding: 18px 22px;
+
+  border-right: 1px solid var(--cs-border);
+}
+
+
+.cs-summary-item:last-child {
+  border-right: 0;
+}
+
+
+.cs-summary-icon {
+  width: 38px;
+  height: 38px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 10px;
+
+  background: var(--cs-blue-soft);
+  color: var(--cs-blue);
+}
+
+
+.cs-summary-icon.warning {
+  background: var(--cs-orange-soft);
+  color: var(--cs-orange);
+}
+
+
+.cs-summary-item strong {
+  display: block;
+
+  color: var(--cs-text);
+
+  font-size: 20px;
+  font-weight: 500;
+}
+
+
+.cs-summary-item span {
+  display: block;
+
+  margin-top: 2px;
+
+  color: var(--cs-text-muted);
+
+  font-size: 12px;
+}
+
+
+/* ============================================================
+   SECTIONS
+   ============================================================ */
+
+.cs-section {
+  margin-bottom: 42px;
+}
+
+
+.cs-section-heading,
+.cs-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 16px;
+
+  margin-bottom: 18px;
+}
+
+
+.cs-section-heading h2,
+.cs-panel-header h2 {
+  margin: 0;
+
+  color: var(--cs-text);
+
+  font-size: 18px;
+  font-weight: 500;
+
+  letter-spacing: -0.015em;
+}
+
+
+.cs-section-heading p,
+.cs-panel-header p {
+  margin: 4px 0 0;
+
+  color: var(--cs-text-muted);
+
+  font-size: 12px;
+}
+
+
+.cs-text-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+
+  border: 0;
+  background: transparent;
+
+  color: var(--cs-blue);
+
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+
+  cursor: pointer;
+}
+
+
+/* ============================================================
+   PROJECT CARDS
+   ============================================================ */
+
+.cs-project-grid {
+  display: grid;
+
+  grid-template-columns:
+    repeat(3, minmax(0, 1fr));
+
+  gap: 16px;
+}
+
+
+.cs-project-card {
+  display: block;
+
+  min-height: 235px;
+
+  padding: 20px;
+
+  border: 1px solid var(--cs-border);
+  border-radius: 14px;
+
+  background: var(--cs-surface);
+
+  color: var(--cs-text);
+
+  text-decoration: none;
+
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+
+.cs-project-card:hover {
+  border-color: var(--cs-border-strong);
+
+  box-shadow: var(--cs-shadow);
+
+  transform: translateY(-1px);
+}
+
+
+.cs-project-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  margin-bottom: 18px;
+}
+
+
+.cs-project-icon {
+  width: 40px;
+  height: 40px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 10px;
+
+  background: var(--cs-blue-soft);
+  color: var(--cs-blue);
+}
+
+
+.cs-project-title {
+  font-size: 17px;
+  font-weight: 500;
+
+  letter-spacing: -0.015em;
+}
+
+
+.cs-project-description {
+  min-height: 42px;
+
+  margin: 7px 0 13px;
+
+  color: var(--cs-text-secondary);
+
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+
+.cs-project-team {
+  color: var(--cs-text-muted);
+
+  font-size: 12px;
+}
+
+
+.cs-project-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  margin-top: 22px;
+  padding-top: 15px;
+
+  border-top: 1px solid var(--cs-border);
+}
+
+
+.cs-avatar-stack {
+  display: flex;
+}
+
+
+.cs-avatar-stack .cs-avatar {
+  margin-left: -6px;
+
+  border: 2px solid var(--cs-surface);
+}
+
+
+.cs-avatar-stack .cs-avatar:first-child {
+  margin-left: 0;
+}
+
+
+.cs-project-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+
+  color: var(--cs-text-muted);
+
+  font-size: 11px;
+}
+
+
+.cs-project-status span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+
+.cs-project-status .warning {
+  color: var(--cs-orange);
+}
+
+
+/* ============================================================
+   DASHBOARD LOWER AREA
+   ============================================================ */
+
+.cs-dashboard-grid {
+  display: grid;
+
+  grid-template-columns:
+    minmax(0, 1.7fr)
+    minmax(300px, 0.8fr);
+
+  gap: 18px;
+
+  align-items: start;
+}
+
+
+.cs-right-column {
+  display: grid;
+  gap: 18px;
+}
+
+
+.cs-panel {
+  overflow: hidden;
+
+  border: 1px solid var(--cs-border);
+  border-radius: 14px;
+
+  background: var(--cs-surface);
+}
+
+
+.cs-panel-header {
+  margin: 0;
+
+  padding: 20px 20px 14px;
+}
+
+
+.cs-panel-header.compact {
+  padding-bottom: 12px;
+}
+
+
+/* ============================================================
+   ACTIVITY
+   ============================================================ */
+
+.cs-activity-list {
+  padding: 0 20px;
+}
+
+
+.cs-activity-item {
+  display: flex;
+  gap: 12px;
+
+  padding: 17px 0;
+
+  border-top: 1px solid var(--cs-border);
+}
+
+
+.cs-activity-content {
+  flex: 1;
+  min-width: 0;
+}
+
+
+.cs-activity-top {
+  display: flex;
+  justify-content: space-between;
+
+  gap: 12px;
+
+  color: var(--cs-text-secondary);
+
+  font-size: 12px;
+}
+
+
+.cs-activity-top strong {
+  color: var(--cs-text);
+  font-weight: 500;
+}
+
+
+.cs-activity-top time {
+  flex-shrink: 0;
+
+  color: var(--cs-text-muted);
+}
+
+
+.cs-activity-message {
+  margin-top: 5px;
+
+  color: var(--cs-text);
+
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+
+.cs-activity-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+
+  margin-top: 8px;
+
+  color: var(--cs-text-muted);
+
+  font-size: 11px;
+}
+
+
+.cs-panel-footer-button {
+  width: 100%;
+  height: 44px;
+
+  border: 0;
+  border-top: 1px solid var(--cs-border);
+
+  background: transparent;
+
+  color: var(--cs-blue);
+
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+
+  cursor: pointer;
+}
+
+
+.cs-panel-footer-button:hover {
+  background: var(--cs-surface-soft);
+}
+
+
+/* ============================================================
+   AVATAR
+   ============================================================ */
+
+.cs-avatar {
+  width: 34px;
+  height: 34px;
+
+  flex: 0 0 auto;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 50%;
+
+  background: var(--cs-blue-soft);
+  color: var(--cs-blue);
+
+  font-size: 10px;
+  font-weight: 600;
+}
+
+
+.cs-avatar.small {
+  width: 28px;
+  height: 28px;
+
+  font-size: 9px;
+}
+
+
+/* ============================================================
+   CONFLICT
+   ============================================================ */
+
+.cs-conflict-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+
+  padding: 18px 18px 14px;
+}
+
+
+.cs-warning-icon {
+  width: 38px;
+  height: 38px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 10px;
+
+  background: var(--cs-orange-soft);
+  color: var(--cs-orange);
+}
+
+
+.cs-conflict-heading span {
+  color: var(--cs-orange);
+
+  font-size: 10px;
+  font-weight: 600;
+
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+
+.cs-conflict-heading h3 {
+  margin: 3px 0 0;
+
+  font-size: 15px;
+  font-weight: 500;
+}
+
+
+.cs-conflict-body {
+  padding: 0 18px 18px;
+}
+
+
+.cs-conflict-project {
+  margin-top: 4px;
+
+  color: var(--cs-blue);
+
+  font-size: 11px;
+  font-weight: 500;
+}
+
+
+.cs-conflict-body h4 {
+  margin: 6px 0 6px;
+
+  font-size: 15px;
+  font-weight: 500;
+}
+
+
+.cs-conflict-body > p {
+  margin: 0;
+
+  color: var(--cs-text-secondary);
+
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+
+.cs-conflict-sides {
+  display: grid;
+
+  grid-template-columns:
+    1fr auto 1fr;
+
+  align-items: center;
+
+  gap: 8px;
+
+  margin: 18px 0;
+}
+
+
+.cs-conflict-sides > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  min-width: 0;
+
+  color: var(--cs-text);
+
+  font-size: 11px;
+  font-weight: 500;
+}
+
+
+.cs-vs {
+  color: var(--cs-text-muted);
+
+  font-size: 10px;
+}
+
+
+.cs-resolve-button {
+  width: 100%;
+  height: 38px;
+
+  border: 1px solid var(--cs-blue);
+  border-radius: 20px;
+
+  background: transparent;
+
+  color: var(--cs-blue);
+
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+
+  cursor: pointer;
+}
+
+
+.cs-resolve-button:hover {
+  background: var(--cs-blue-soft);
+}
+
+
+/* ============================================================
+   MEMBERS
+   ============================================================ */
+
+.cs-team-list {
+  padding: 0 12px 12px;
+}
+
+
+.cs-member-row {
+  width: 100%;
+
+  display: grid;
+
+  grid-template-columns:
+    auto 1fr auto;
+
+  align-items: center;
+  gap: 10px;
+
+  padding: 9px 8px;
+
+  border: 0;
+  border-radius: 9px;
+
+  background: transparent;
+
+  color: var(--cs-text);
+
+  text-align: left;
+
+  cursor: pointer;
+}
+
+
+.cs-member-row:hover {
+  background: var(--cs-surface-soft);
+}
+
+
+.cs-member-row strong {
+  display: block;
+
+  font-size: 12px;
+  font-weight: 500;
+}
+
+
+.cs-member-row span {
+  display: block;
+
+  margin-top: 2px;
+
+  color: var(--cs-text-muted);
+
+  font-size: 10px;
+}
+
+
+.cs-member-row > svg {
+  color: var(--cs-text-muted);
+}
+
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (
+  max-width: 1100px
+) {
+
+  .cs-project-grid {
+    grid-template-columns:
+      repeat(2, 1fr);
+  }
+
+
+  .cs-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+
+  .cs-right-column {
+    grid-template-columns:
+      repeat(2, 1fr);
+  }
+
+}
+
+
+@media (
+  max-width: 850px
+) {
+
+  .cs-sidebar {
+    transform:
+      translateX(-100%);
+
+    box-shadow:
+      10px 0 30px
+      rgba(0, 0, 0, 0.15);
+
+    transition:
+      transform 180ms ease;
+  }
+
+
+  .cs-sidebar-open {
+    transform:
+      translateX(0);
+  }
+
+
+  .cs-mobile-close {
+    display: grid;
+    place-items: center;
+  }
+
+
+  .cs-mobile-overlay {
+    position: fixed;
+    inset: 0;
+
+    border: 0;
+
+    background:
+      rgba(0, 0, 0, 0.3);
+
+    z-index: 40;
+  }
+
+
+  .cs-main {
+    margin-left: 0;
+  }
+
+
+  .cs-menu-button {
+    display: grid;
+  }
+
+
+  .cs-search {
+    width: min(
+      520px,
+      65vw
+    );
+  }
+
+
+  .cs-content {
+    padding:
+      32px 22px 60px;
+  }
+
+
+  .cs-summary-strip {
+    grid-template-columns:
+      repeat(2, 1fr);
+  }
+
+
+  .cs-summary-item:nth-child(2) {
+    border-right: 0;
+  }
+
+
+  .cs-summary-item:nth-child(-n + 2) {
+    border-bottom:
+      1px solid
+      var(--cs-border);
+  }
+
+}
+
+
+@media (
+  max-width: 620px
+) {
+
+  .cs-topbar {
+    padding: 0 14px;
+  }
+
+
+  .cs-search {
+    width: auto;
+    flex: 1;
+  }
+
+
+  .cs-search kbd {
+    display: none;
+  }
+
+
+  .cs-theme-toggle {
+    display: none;
+  }
+
+
+  .cs-welcome {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+
+  .cs-welcome h1 {
+    font-size: 27px;
+  }
+
+
+  .cs-project-grid {
+    grid-template-columns: 1fr;
+  }
+
+
+  .cs-summary-strip {
+    grid-template-columns: 1fr;
+  }
+
+
+  .cs-summary-item {
+    border-right: 0;
+
+    border-bottom:
+      1px solid
+      var(--cs-border);
+  }
+
+
+  .cs-summary-item:last-child {
+    border-bottom: 0;
+  }
+
+
+  .cs-right-column {
+    grid-template-columns: 1fr;
+  }
+
+
+  .cs-activity-top {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+
+  .cs-content {
+    padding:
+      26px 16px 50px;
+  }
+
 }

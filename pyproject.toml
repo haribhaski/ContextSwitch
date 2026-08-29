@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contextswitch-cli"
+version = "0.1.0"
+description = "Shared memory for AI development teams"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0"
+]
+
+[project.scripts]
+cs = "contextswitch_cli.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["contextswitch_cli*"]
