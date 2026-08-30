@@ -77,6 +77,8 @@ class ProjectCreateRequest(BaseModel):
 class MemberAddRequest(BaseModel):
     worker_id: str
     name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = "member"
 
 
 class EntryCreateRequest(BaseModel):
@@ -375,6 +377,8 @@ async def add_member_endpoint(
             project_id=project_id,
             worker_id=request.worker_id,
             name=request.name,
+            email=request.email,
+            role=request.role or "member",
         )
 
         return {
@@ -859,3 +863,80 @@ async def export_project_context(
         "members": members,
         "active_conflicts": conflicts,
     }
+
+
+# ============================================================
+# SYNC GITHUB EVIDENCE
+# ============================================================
+
+@app.post(
+    "/teams/{team_id}/projects/{project_id}/sync-github"
+)
+async def sync_github_endpoint(
+    team_id: str,
+    project_id: str,
+):
+    project = get_project(
+        team_id=team_id,
+        project_id=project_id,
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found",
+        )
+
+    owner = project.get("github_owner")
+    repo = project.get("github_repo")
+
+    if not owner or not repo:
+        raise HTTPException(
+            status_code=400,
+            detail="No GitHub repository associated with this project",
+        )
+
+    try:
+        evidence = get_initial_project_evidence(
+            owner=owner,
+            repo=repo,
+        )
+
+        if evidence:
+            save_github_evidence_batch(
+                team_id=team_id,
+                project_id=project_id,
+                evidence_items=evidence,
+            )
+
+            current_state = project.get("current_state", {})
+            result = await reconcile_team_entry(
+                current_state=current_state,
+                new_entry={
+                    "entry_id": "github_sync",
+                    "worker_id": "github_sync",
+                    "type": "github_sync",
+                    "content": f"GitHub sync fetched {len(evidence)} evidence items from {owner}/{repo}",
+                    "source": "github",
+                },
+                recent_entries=[],
+            )
+
+            updated_state = result["updated_state"]
+            update_project_state(
+                team_id=team_id,
+                project_id=project_id,
+                state=updated_state,
+            )
+
+        return {
+            "message": "GitHub synced successfully",
+            "evidence_count": len(evidence),
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"GitHub sync failed: {str(exc)}",
+        )

@@ -4,6 +4,9 @@
 .env
 .env.*
 !.env.example
+env
+env.*
+*.download
 contextswitch/.env
 contextswitch/.env.*
 

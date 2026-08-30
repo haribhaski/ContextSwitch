@@ -4,9 +4,79 @@ from typing import Optional
 from google.cloud import firestore
 
 
-db = firestore.Client(
-    project="contextswitch-hackathon-26"
-)
+import logging
+
+try:
+    db = firestore.Client(
+        project="contextswitch-hackathon-26"
+    )
+except Exception as e:
+    logging.warning(f"Firestore Client default credentials not found ({e}). Falling back to local in-memory storage.")
+    
+    class MockDoc:
+        def __init__(self, doc_id, data=None):
+            self.id = doc_id
+            self._data = data or {}
+            self.exists = bool(data)
+            self._subcollections = {}
+
+        def to_dict(self):
+            return dict(self._data)
+
+        def set(self, data, merge=False):
+            if merge:
+                self._data.update(data)
+            else:
+                self._data = dict(data)
+            self.exists = True
+
+        def update(self, data):
+            self._data.update(data)
+            self.exists = True
+
+        def get(self):
+            return self
+
+        def collection(self, col_name):
+            if col_name not in self._subcollections:
+                self._subcollections[col_name] = MockCollection()
+            return self._subcollections[col_name]
+
+    class MockCollection:
+        def __init__(self):
+            self.docs = {}
+
+        def document(self, doc_id=None):
+            if not doc_id:
+                import uuid
+                doc_id = str(uuid.uuid4())
+            if doc_id not in self.docs:
+                self.docs[doc_id] = MockDoc(doc_id)
+            return self.docs[doc_id]
+
+        def stream(self):
+            return [doc for doc in self.docs.values() if doc.exists]
+
+        def order_by(self, field, direction=None):
+            return self
+
+        def limit(self, count):
+            return self
+
+        def where(self, field, op, val):
+            return self
+
+    class InMemoryFirestore:
+        def __init__(self):
+            self.collections = {}
+
+        def collection(self, name):
+            if name not in self.collections:
+                self.collections[name] = MockCollection()
+            return self.collections[name]
+
+    db = InMemoryFirestore()
+
 
 
 # ============================================================
@@ -190,12 +260,11 @@ def add_member(
     project_id: str,
     worker_id: str,
     name: Optional[str] = None,
+    email: Optional[str] = None,
+    role: str = "member",
 ):
     """
-    Add a worker/member to a project.
-
-    Example:
-        worker_id = "hariharan"
+    Add a worker/member to a project with optional email and role (owner, admin, member).
     """
 
     now = datetime.now(timezone.utc)
@@ -213,6 +282,8 @@ def add_member(
         {
             "worker_id": worker_id,
             "name": name or worker_id,
+            "email": email,
+            "role": role,
             "joined_at": now,
         },
         merge=True,

@@ -114,6 +114,16 @@ export default function LoginPage() {
                 </button>
               </form>
 
+              <div className="mt-4 text-center">
+                <Link
+                  href="/dashboard"
+                  className="text-xs font-medium text-[#0b57d0] hover:underline"
+                >
+                  Or skip sign in & continue to Dashboard (Dev Mode) →
+                </Link>
+              </div>
+
+
               <div className="my-8 h-px bg-[#e3e3e3]" />
 
               <div className="space-y-5">
