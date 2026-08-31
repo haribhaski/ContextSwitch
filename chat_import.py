@@ -80,7 +80,7 @@ ALLOWED_EXTRACT_TYPES = {
 
 MODEL = os.getenv(
     "GEMINI_MODEL",
-    "gemini-3-flash-preview",
+    "gemini-3.6-flash",
 )
 
 MAX_CHAT_CHARS = int(
@@ -241,142 +241,349 @@ def validate_gemini_share_url(url: str) -> str:
     return url
 
 
-# ============================================================
-# GEMINI PUBLIC PAGE FETCH
-# ============================================================
+async def fetch_gemini_share_text(url: str) -> tuple[str, str, str]:
+    from playwright.async_api import (
+        async_playwright,
+        TimeoutError as PlaywrightTimeoutError,
+    )
 
-async def fetch_gemini_share_text(
-    url: str,
-) -> tuple[str, str, str]:
-    """
-    Gemini share pages are rendered web apps.
-
-    Playwright is used so we can read the actual visible
-    conversation text after the page renders.
-
-    Returns:
-        final_url,
-        page_title,
-        visible_text
-    """
+    print(f"[Gemini Import] Opening: {url}")
 
     async with async_playwright() as p:
-
         browser = await p.chromium.launch(
             headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ],
         )
 
-        page = await browser.new_page(
+        context = await browser.new_context(
             viewport={
                 "width": 1440,
                 "height": 1200,
             },
-
             user_agent=(
-                "Mozilla/5.0 "
-                "(X11; Linux x86_64) "
-                "AppleWebKit/537.36 "
-                "(KHTML, like Gecko) "
-                "Chrome/124.0.0.0 "
-                "Safari/537.36"
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
             ),
         )
 
+        page = await context.new_page()
+
         try:
+            # -------------------------------------------------
+            # OPEN GEMINI SHARE PAGE
+            # -------------------------------------------------
 
             response = await page.goto(
                 url,
                 wait_until="domcontentloaded",
-                timeout=30000,
+                timeout=60000,
             )
 
-            if response is None:
-                raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        "Gemini share page did not "
-                        "return a response."
-                    ),
-                )
-
-            await page.wait_for_timeout(
-                1800
+            print(
+                "[Gemini Import] HTTP status:",
+                response.status if response else "unknown",
             )
 
             final_url = page.url
 
-            parsed = urlparse(
-                final_url
+            print(
+                "[Gemini Import] Final URL:",
+                final_url,
             )
 
-            if (
-                parsed.scheme != "https"
-                or parsed.hostname
-                not in {
-                    "gemini.google.com",
-                    "g.co",
-                }
-            ):
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "Gemini link redirected to "
-                        "an unsupported host."
-                    ),
+            # Gemini can keep network requests alive,
+            # so don't fail if networkidle times out.
+            try:
+                await page.wait_for_load_state(
+                    "networkidle",
+                    timeout=15000,
                 )
+            except PlaywrightTimeoutError:
+                pass
 
-            title = (
-                await page.title()
+            # Give client-side rendering a little extra time.
+            await page.wait_for_timeout(4000)
+
+            browser_title = (await page.title()).strip()
+
+            print(
+                "[Gemini Import] Page title:",
+                browser_title,
             )
 
-            body_text = (
-                await page
-                .locator("body")
-                .inner_text(
+            # -------------------------------------------------
+            # HANDLE COOKIE / CONSENT POPUPS
+            # -------------------------------------------------
+
+            possible_buttons = [
+                "Accept all",
+                "I agree",
+                "Accept",
+                "Continue",
+                "Got it",
+            ]
+
+            for button_text in possible_buttons:
+                try:
+                    button = page.get_by_role(
+                        "button",
+                        name=button_text,
+                    )
+
+                    if await button.count() > 0:
+                        first_button = button.first
+
+                        if await first_button.is_visible():
+                            print(
+                                f"[Gemini Import] Clicking consent button: "
+                                f"{button_text}"
+                            )
+
+                            await first_button.click()
+
+                            await page.wait_for_timeout(
+                                1200
+                            )
+
+                except Exception:
+                    pass
+
+            # -------------------------------------------------
+            # GET FULL RENDERED BODY TEXT
+            # -------------------------------------------------
+
+            body_text = ""
+
+            try:
+                body_text = await page.locator(
+                    "body"
+                ).inner_text(
                     timeout=10000
                 )
-            )
+            except Exception as exc:
+                print(
+                    "[Gemini Import] Failed to read body text:",
+                    exc,
+                )
 
-            body_text = re.sub(
-                r"\n{3,}",
-                "\n\n",
-                body_text,
+            body_text = (
+                body_text or ""
             ).strip()
 
-            if len(body_text) < 80:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "The Gemini share page opened, "
-                        "but no readable conversation "
-                        "was found. Make sure the "
-                        "public share link still exists "
-                        "and opens without signing in."
-                    ),
+            print(
+                "[Gemini Import] Body text length:",
+                len(body_text),
+            )
+
+            print(
+                "[Gemini Import] Body preview:"
+            )
+
+            print(
+                body_text[:2000]
+            )
+
+            # -------------------------------------------------
+            # FALLBACK SELECTOR EXTRACTION
+            # -------------------------------------------------
+
+            selectors = [
+                "main",
+                "[role='main']",
+                "article",
+                "[data-test-id]",
+                ".conversation",
+                ".response-container",
+                ".model-response-text",
+                ".query-text",
+            ]
+
+            extracted_parts = []
+
+            for selector in selectors:
+                try:
+                    elements = page.locator(
+                        selector
+                    )
+
+                    count = await elements.count()
+
+                    for index in range(
+                        min(count, 100)
+                    ):
+                        try:
+                            text = (
+                                await elements.nth(
+                                    index
+                                ).inner_text(
+                                    timeout=2000
+                                )
+                            ).strip()
+
+                            if (
+                                text
+                                and len(text) > 20
+                                and text not in extracted_parts
+                            ):
+                                extracted_parts.append(
+                                    text
+                                )
+
+                        except Exception:
+                            continue
+
+                except Exception:
+                    continue
+
+            selector_text = "\n\n".join(
+                extracted_parts
+            ).strip()
+
+            print(
+                "[Gemini Import] Selector extracted length:",
+                len(selector_text),
+            )
+
+            # -------------------------------------------------
+            # IMPORTANT:
+            # Prefer body_text.
+            #
+            # Gemini's selector tree can contain duplicate
+            # copies of the same conversation.
+            # -------------------------------------------------
+
+            if len(body_text) >= 200:
+                conversation_text = body_text
+
+            elif len(selector_text) >= 200:
+                conversation_text = selector_text
+
+            else:
+                conversation_text = ""
+
+            # -------------------------------------------------
+            # DETECT ACTUAL FAILURE PAGES
+            # -------------------------------------------------
+
+            lowered = conversation_text.lower()
+
+            failure_markers = [
+                "page not found",
+                "conversation not found",
+                "this shared conversation is unavailable",
+                "this conversation is unavailable",
+                "the requested conversation could not be found",
+            ]
+
+            if len(conversation_text) < 100:
+                print(
+                    "[Gemini Import] Conversation text is too short."
                 )
 
-            if (
-                len(body_text)
-                > MAX_CHAT_CHARS
-            ):
-                body_text = (
-                    body_text[
-                        :MAX_CHAT_CHARS
-                    ]
+                print(
+                    "[Gemini Import] Final rendered text:"
                 )
+
+                print(
+                    conversation_text[:3000]
+                )
+
+                raise ValueError(
+                    "The Gemini share page opened, but no readable "
+                    "conversation was found."
+                )
+
+            if any(
+                marker in lowered
+                for marker in failure_markers
+            ):
+                print(
+                    "[Gemini Import] Gemini returned an unavailable "
+                    "conversation page."
+                )
+
+                print(
+                    conversation_text[:3000]
+                )
+
+                raise ValueError(
+                    "This Gemini conversation is unavailable "
+                    "or has been removed."
+                )
+
+            # -------------------------------------------------
+            # CLEAN GEMINI PAGE CHROME
+            # -------------------------------------------------
+
+            lines = [
+                line.strip()
+                for line in conversation_text.splitlines()
+                if line.strip()
+            ]
+
+            skip_exact = {
+                "Gemini",
+                "About Gemini",
+                "Get Gemini App",
+                "Subscriptions",
+                "For Business",
+                "Sign in",
+                "Google Privacy Policy",
+                "Google Terms of Service",
+                "Your privacy & Gemini Apps",
+                "Opens in a new window",
+                (
+                    "Gemini may display inaccurate info, including "
+                    "about people, so double-check its responses."
+                ),
+            }
+
+            cleaned_lines = []
+
+            for line in lines:
+                if line in skip_exact:
+                    continue
+
+                cleaned_lines.append(
+                    line
+                )
+
+            conversation_text = "\n".join(
+                cleaned_lines
+            ).strip()
+
+            # -------------------------------------------------
+            # FINAL VALIDATION
+            # -------------------------------------------------
+
+            if len(conversation_text) < 100:
+                raise ValueError(
+                    "Gemini conversation was found, but there was "
+                    "not enough readable content to import."
+                )
+
+            print(
+                "[Gemini Import] Successfully extracted",
+                len(conversation_text),
+                "characters",
+            )
+
+            print(
+                "[Gemini Import] Cleaned preview:"
+            )
+
+            print(
+                conversation_text[:2000]
+            )
 
             return (
                 final_url,
-                title,
-                body_text,
+                browser_title,
+                conversation_text,
             )
 
         finally:
-
+            await context.close()
             await browser.close()
 
 
@@ -940,11 +1147,15 @@ async def analyze_chat_import(
         ),
 ):
 
-    url = (
-        validate_gemini_share_url(
+    try:
+        url = validate_gemini_share_url(
             payload.url
         )
-    )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
 
     invalid = [
         value
@@ -1014,15 +1225,34 @@ async def analyze_chat_import(
         or {}
     )
 
-    (
-        final_url,
-        browser_title,
-        conversation_text,
-    ) = (
-        await fetch_gemini_share_text(
+    try:
+        (
+            final_url,
+            browser_title,
+            conversation_text,
+        ) = await fetch_gemini_share_text(
             url
         )
-    )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(
+            "[Gemini Import] Failed to read Gemini share page:",
+            repr(exc),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Failed to read the Gemini share page. "
+                "Check that the public link still works and that "
+                "Playwright Chromium is installed."
+            ),
+        ) from exc
 
     content_hash = hashlib.sha256(
         conversation_text.encode(
