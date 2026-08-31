@@ -54,7 +54,7 @@ from contextswitch.storage import (
     save_github_evidence_batch,
 )
 
-
+from chat_import import router as chat_import_router
 # ============================================================
 # APP
 # ============================================================
@@ -63,7 +63,7 @@ app = FastAPI(
     title="ContextSwitch API",
     version="0.3.0",
 )
-
+app.include_router(chat_import_router)
 
 # ============================================================
 # CORS
@@ -1994,3 +1994,4 @@ async def add_team_member_endpoint(
                 f"{str(exc)}"
             ),
         )
+        
