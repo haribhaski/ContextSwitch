@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -772,6 +773,15 @@ async def resolve_project_conflict_endpoint(
             resolution=request.resolution,
             resolved_by=request.resolved_by,
         )
+
+        # Update persisted project current_state with resolved decision
+        current_state = project.get("current_state", {})
+        decisions = current_state.get("decisions", [])
+        res_decision = f"[Resolved Decision] {request.resolution} (Resolved by {request.resolved_by})"
+        if res_decision not in decisions:
+            decisions.append(res_decision)
+            current_state["decisions"] = decisions
+            update_project_state(team_id=team_id, project_id=project_id, state=current_state)
 
         # ----------------------------------------------------
         # Also save the resolution as project history.

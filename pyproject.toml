@@ -4,15 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "contextswitch-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Shared memory for AI development teams"
 requires-python = ">=3.10"
 dependencies = [
-    "requests>=2.31.0"
+    "requests>=2.31.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+    "pydantic>=2.6.0",
+    "python-dotenv>=1.0.0",
+    "google-adk>=2.8.0",
+    "google-genai>=1.2.0",
+    "google-cloud-firestore>=2.14.0",
+    "opentelemetry-semantic-conventions>=0.60b1",
+    "httpx>=0.26.0"
 ]
 
 [project.scripts]
 cs = "contextswitch_cli.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["contextswitch_cli*"]
+include = ["contextswitch_cli*", "contextswitch*"]

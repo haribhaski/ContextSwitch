@@ -60,7 +60,7 @@ export default function LoginPage() {
             </div>
 
             <h1 className="max-w-[600px] text-[42px] font-medium leading-[1.08] tracking-[-0.035em] md:text-[58px]">
-              Your team's shared
+              Your team&apos;s shared
               <span className="text-[#0b57d0]">
                 {" "}
                 AI memory.
@@ -170,7 +170,7 @@ export default function LoginPage() {
                     </div>
 
                     <div className="mt-1 text-sm leading-5 text-[#5f6368]">
-                      Fresh AI sessions can inherit the team's current context.
+                      Fresh AI sessions can inherit the team&apos;s current context.
                     </div>
                   </div>
                 </div>
