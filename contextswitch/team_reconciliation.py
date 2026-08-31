@@ -226,19 +226,26 @@ def clean_json_output(raw_output: str) -> str:
     Gemini sometimes wraps JSON in ```json ... ```.
     Remove that safely.
     """
-
     cleaned = raw_output.strip()
 
     if cleaned.startswith("```json"):
         cleaned = cleaned[len("```json"):]
-
     elif cleaned.startswith("```"):
         cleaned = cleaned[len("```"):]
 
     if cleaned.endswith("```"):
         cleaned = cleaned[:-3]
 
+    cleaned = cleaned.strip()
+
+    if not (cleaned.startswith("{") and cleaned.endswith("}")):
+        first_brace = cleaned.find("{")
+        last_brace = cleaned.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            cleaned = cleaned[first_brace:last_brace + 1]
+
     return cleaned.strip()
+
 
 
 # ============================================================

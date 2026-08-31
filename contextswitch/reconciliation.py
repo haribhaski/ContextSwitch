@@ -20,13 +20,37 @@ NEW_EVIDENCE
 """
 
 
+def clean_json_output(raw_output: str) -> str:
+    cleaned = raw_output.strip()
+
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[len("```json"):]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[len("```"):]
+
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+
+    cleaned = cleaned.strip()
+
+    if not (cleaned.startswith("{") and cleaned.endswith("}")):
+        first_brace = cleaned.find("{")
+        last_brace = cleaned.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            cleaned = cleaned[first_brace:last_brace + 1]
+
+    return cleaned.strip()
+
+
 def validate_reconciliation(
     raw_output: str
 ) -> ReconciliationResult:
 
-    data = json.loads(raw_output)
+    cleaned = clean_json_output(raw_output)
+    data = json.loads(cleaned)
 
     return ReconciliationResult.model_validate(data)
+
 
 
 async def reconcile_state(

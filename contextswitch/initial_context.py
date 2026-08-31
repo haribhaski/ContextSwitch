@@ -1,7 +1,34 @@
 import json
+import re
 
 from contextswitch.runner import run_initial_context_agent
 from contextswitch.schemas import CurrentState
+
+
+def clean_json_output(raw_output: str) -> str:
+    """
+    Gemini sometimes wraps JSON in ```json ... ``` or includes trailing markdown text.
+    Clean and extract the JSON object safely.
+    """
+    cleaned = raw_output.strip()
+
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[len("```json"):]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[len("```"):]
+
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+
+    cleaned = cleaned.strip()
+
+    if not (cleaned.startswith("{") and cleaned.endswith("}")):
+        first_brace = cleaned.find("{")
+        last_brace = cleaned.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            cleaned = cleaned[first_brace:last_brace + 1]
+
+    return cleaned
 
 
 async def build_initial_state(
@@ -51,5 +78,20 @@ Return ONLY valid JSON:
 """
 
     raw_output = await run_initial_context_agent(prompt)
-    data = json.loads(raw_output)
-    return CurrentState.model_validate(data)
+    cleaned = clean_json_output(raw_output)
+
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        data = {
+            "goal": "Initial repository context generated",
+            "progress": [],
+            "decisions": [],
+            "failures": [],
+            "blockers": [],
+            "open_questions": [],
+            "dependencies": [],
+            "next_actions": [],
+        }
+
+    return CurrentState.model_validate(data)

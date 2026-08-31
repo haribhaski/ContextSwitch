@@ -96,6 +96,35 @@ function makeSlug(
     );
 }
 
+function parseGithubInput(
+  input: string
+): { owner: string; repo: string } | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  const urlMatch = trimmed.match(
+    /(?:https?:\/\/)?(?:www\.)?github\.com\/([^\/]+)\/([^\/\s#?]+)/i
+  );
+  if (urlMatch) {
+    const owner = urlMatch[1];
+    let repo = urlMatch[2];
+    if (repo.endsWith(".git")) repo = repo.slice(0, -4);
+    return { owner, repo };
+  }
+
+  const slashMatch = trimmed.match(
+    /^([a-zA-Z0-9_\-\.]+)\/([a-zA-Z0-9_\-\.]+)$/
+  );
+  if (slashMatch) {
+    let repo = slashMatch[2];
+    if (repo.endsWith(".git")) repo = repo.slice(0, -4);
+    return { owner: slashMatch[1], repo };
+  }
+
+  return null;
+}
+
+
 
 /* =========================================================
    COMPONENT
@@ -258,20 +287,33 @@ export default function CreateProjectModal({
     }
 
     /*
-     * GitHub fields must either BOTH exist or BOTH be empty.
+     * GitHub fields parsing (supports full URL, owner/repo string, or separate fields)
      */
-    const owner =
-      githubOwner.trim();
+    let owner = githubOwner.trim();
+    let repo = githubRepo.trim();
 
-    const repo =
-      githubRepo.trim();
+    const parsedOwner = parseGithubInput(owner);
+    if (parsedOwner) {
+      owner = parsedOwner.owner;
+      repo = parsedOwner.repo;
+      setGithubOwner(owner);
+      setGithubRepo(repo);
+    } else if (repo) {
+      const parsedRepo = parseGithubInput(repo);
+      if (parsedRepo) {
+        owner = parsedRepo.owner;
+        repo = parsedRepo.repo;
+        setGithubOwner(owner);
+        setGithubRepo(repo);
+      }
+    }
 
     if (
       (owner && !repo) ||
       (!owner && repo)
     ) {
       setError(
-        "Enter both GitHub owner and repository, or leave both empty."
+        "Enter a valid GitHub URL, owner/repository format, or enter both owner and repository."
       );
 
       return;
@@ -812,13 +854,17 @@ export default function CreateProjectModal({
                 disabled={loading}
                 onChange={(
                   event
-                ) =>
-                  setGithubOwner(
-                    event.target
-                      .value
-                  )
-                }
-                placeholder="Owner"
+                ) => {
+                  const val = event.target.value;
+                  const parsed = parseGithubInput(val);
+                  if (parsed) {
+                    setGithubOwner(parsed.owner);
+                    setGithubRepo(parsed.repo);
+                  } else {
+                    setGithubOwner(val);
+                  }
+                }}
+                placeholder="Owner or Repo URL (e.g. owner/repo)"
                 className="
                   w-full rounded-lg
                   border border-[#2a3040]
@@ -840,12 +886,16 @@ export default function CreateProjectModal({
                 disabled={loading}
                 onChange={(
                   event
-                ) =>
-                  setGithubRepo(
-                    event.target
-                      .value
-                  )
-                }
+                ) => {
+                  const val = event.target.value;
+                  const parsed = parseGithubInput(val);
+                  if (parsed) {
+                    setGithubOwner(parsed.owner);
+                    setGithubRepo(parsed.repo);
+                  } else {
+                    setGithubRepo(val);
+                  }
+                }}
                 placeholder="Repository"
                 className="
                   w-full rounded-lg

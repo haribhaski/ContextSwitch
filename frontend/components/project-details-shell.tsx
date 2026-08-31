@@ -4,16 +4,25 @@ import ImportAIContextModal from "@/components/import-ai-context-modal";
 
 import {
   Activity,
+  AlertOctagon,
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   Brain,
+  Check,
   CheckCircle2,
   ChevronRight,
   Copy,
   GitBranch,
+  HelpCircle,
   Layers,
+  Lightbulb,
+  ListTodo,
   RefreshCw,
+  ShieldAlert,
   Sparkles,
+  Target,
+  UserPlus,
   Users,
   XCircle,
   Zap,
@@ -23,8 +32,10 @@ import Link from "next/link";
 
 import {
   useEffect,
+  useRef,
   useState,
 } from "react";
+import { useSession } from "next-auth/react";
 
 
 /* =========================================================
@@ -185,6 +196,33 @@ export default function ProjectDetailsShell({
   teamId,
   projectId,
 }: ProjectDetailsShellProps) {
+  const { data: session } = useSession();
+
+  const userEmail =
+    session?.user?.email?.trim().toLowerCase() ||
+    "dev@contextswitch.ai";
+
+  const userName =
+    session?.user?.name?.trim() ||
+    session?.user?.email?.split("@")[0] ||
+    "Developer";
+
+  const hasAutoSynced = useRef(false);
+
+  function getAuthHeaders(customHeaders: Record<string, string> = {}) {
+    const headers: Record<string, string> = {
+      ...customHeaders,
+    };
+
+    if (userEmail) {
+      headers["X-User-Email"] = userEmail;
+    }
+    if (userName) {
+      headers["X-User-Name"] = userName;
+    }
+
+    return headers;
+  }
 
   /* =======================================================
      NORMAL PAGE STATE
@@ -265,6 +303,47 @@ export default function ProjectDetailsShell({
     memberMemoryLoading,
     setMemberMemoryLoading,
   ] = useState(false);
+
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [newMemberName, setNewMemberName] = useState("");
+  const [newMemberEmail, setNewMemberEmail] = useState("");
+  const [newMemberRole, setNewMemberRole] = useState("Developer");
+  const [addingMember, setAddingMember] = useState(false);
+
+  async function handleAddMember(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newMemberEmail.trim()) return;
+
+    setAddingMember(true);
+    try {
+      const res = await fetch(`${API_URL}/teams/${teamId}/projects/${projectId}/members`, {
+        method: "POST",
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          name: newMemberName.trim() || newMemberEmail.split("@")[0],
+          email: newMemberEmail.trim(),
+          role: newMemberRole.trim() || "Developer",
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || "Failed to add member");
+      }
+
+      await loadProjectData();
+      setAddMemberOpen(false);
+      setNewMemberName("");
+      setNewMemberEmail("");
+      setNewMemberRole("Developer");
+      setSyncToast(`Added new team member: ${newMemberName || newMemberEmail}`);
+      setTimeout(() => setSyncToast(null), 4000);
+    } catch (err: any) {
+      alert(`Error adding member: ${err.message}`);
+    } finally {
+      setAddingMember(false);
+    }
+  }
 
 
   /* =======================================================
@@ -360,6 +439,9 @@ export default function ProjectDetailsShell({
           {
             cache:
               "no-store",
+            headers: getAuthHeaders({
+              Accept: "application/json",
+            }),
           }
         ),
 
@@ -368,6 +450,9 @@ export default function ProjectDetailsShell({
           {
             cache:
               "no-store",
+            headers: getAuthHeaders({
+              Accept: "application/json",
+            }),
           }
         ),
       ]);
@@ -510,6 +595,20 @@ export default function ProjectDetailsShell({
           : []
       );
 
+      const needsSync =
+        data.project.needs_github_sync ||
+        (data.project.github_owner &&
+          data.project.github_repo &&
+          !state.goal &&
+          (!state.next_actions || state.next_actions.length === 0));
+
+      if (needsSync && !hasAutoSynced.current) {
+        hasAutoSynced.current = true;
+        setTimeout(() => {
+          void handleSyncGitHub();
+        }, 100);
+      }
+
     } catch (err) {
 
       console.error(
@@ -614,6 +713,9 @@ export default function ProjectDetailsShell({
             {
               cache:
                 "no-store",
+              headers: getAuthHeaders({
+                Accept: "application/json",
+              }),
             }
           );
 
@@ -692,10 +794,10 @@ export default function ProjectDetailsShell({
             method:
               "POST",
 
-            headers: {
+            headers: getAuthHeaders({
               "Content-Type":
                 "application/json",
-            },
+            }),
           }
         );
 
@@ -780,10 +882,10 @@ export default function ProjectDetailsShell({
             method:
               "POST",
 
-            headers: {
+            headers: getAuthHeaders({
               "Content-Type":
                 "application/json",
-            },
+            }),
 
             body:
               JSON.stringify({
@@ -791,7 +893,7 @@ export default function ProjectDetailsShell({
                   resolutionText.trim(),
 
                 resolved_by:
-                  "web-dashboard",
+                  userEmail || "web-dashboard",
               }),
           }
         );
@@ -1326,110 +1428,132 @@ ${
             OVERVIEW
         ================================================= */}
 
-        {activeTab ===
-          "overview" && (
-
+        {activeTab === "overview" && (
           <div className="space-y-6">
+            {/* KPI STATS BAR */}
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <div className="rounded-xl border border-sky-500/20 bg-gradient-to-br from-[#121c2d] to-[#0f1420] p-4 shadow-md transition-all hover:border-sky-500/40">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-sky-400">Next Actions</span>
+                  <div className="rounded-lg bg-sky-500/10 p-2 text-sky-400">
+                    <ListTodo className="h-4 w-4" />
+                  </div>
+                </div>
+                <div className="mt-2 text-2xl font-bold font-mono text-white">
+                  {(currentState.next_actions || []).length}
+                </div>
+              </div>
 
+              <div className="rounded-xl border border-emerald-500/20 bg-gradient-to-br from-[#11241c] to-[#0d1714] p-4 shadow-md transition-all hover:border-emerald-500/40">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Completed Progress</span>
+                  <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" />
+                  </div>
+                </div>
+                <div className="mt-2 text-2xl font-bold font-mono text-white">
+                  {(currentState.progress || []).length}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-purple-500/20 bg-gradient-to-br from-[#1c162b] to-[#120f1c] p-4 shadow-md transition-all hover:border-purple-500/40">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-purple-400">Key Decisions</span>
+                  <div className="rounded-lg bg-purple-500/10 p-2 text-purple-400">
+                    <Lightbulb className="h-4 w-4" />
+                  </div>
+                </div>
+                <div className="mt-2 text-2xl font-bold font-mono text-white">
+                  {(currentState.decisions || []).length}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-rose-500/20 bg-gradient-to-br from-[#26141a] to-[#170e12] p-4 shadow-md transition-all hover:border-rose-500/40">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-rose-400">Active Blockers</span>
+                  <div className="rounded-lg bg-rose-500/10 p-2 text-rose-400">
+                    <AlertTriangle className="h-4 w-4" />
+                  </div>
+                </div>
+                <div className="mt-2 text-2xl font-bold font-mono text-white">
+                  {(currentState.blockers || []).length}
+                </div>
+              </div>
+            </div>
+
+            {/* PROJECT GOAL HERO */}
             <ContextSection
               title="Project Goal"
-              items={
-                currentState.goal
-                  ? [
-                      currentState.goal,
-                    ]
-                  : []
-              }
+              icon={Target}
+              type="goal"
+              items={currentState.goal ? [currentState.goal] : []}
               empty="No project goal recorded."
             />
 
-
+            {/* NEXT ACTIONS & BLOCKERS */}
             <div className="grid gap-6 md:grid-cols-2">
-
               <ContextSection
                 title="Best Next Actions"
-                items={
-                  currentState.next_actions ||
-                  []
-                }
-                empty="No next actions."
+                icon={ListTodo}
+                type="next_actions"
+                items={currentState.next_actions || []}
+                empty="No next actions required."
               />
-
 
               <ContextSection
                 title="Active Blockers"
-                items={
-                  currentState.blockers ||
-                  []
-                }
-                empty="No blockers."
-                danger
+                icon={AlertOctagon}
+                type="blockers"
+                items={currentState.blockers || []}
+                empty="No active blockers reported."
               />
-
             </div>
 
-
+            {/* DECISIONS & PROGRESS */}
             <div className="grid gap-6 md:grid-cols-2">
-
               <ContextSection
-                title="Decisions"
-                items={
-                  currentState.decisions ||
-                  []
-                }
-                empty="No decisions recorded."
+                title="Decisions Made"
+                icon={Lightbulb}
+                type="decisions"
+                items={currentState.decisions || []}
+                empty="No architectural or project decisions recorded yet."
               />
 
-
               <ContextSection
-                title="Progress"
-                items={
-                  currentState.progress ||
-                  []
-                }
-                empty="No completed progress recorded."
+                title="Completed Progress"
+                icon={CheckCircle2}
+                type="progress"
+                items={currentState.progress || []}
+                empty="No completed progress items logged yet."
               />
-
             </div>
 
-
-            {/* NEW PROJECT LEVEL CONTEXT */}
-
+            {/* ASSUMPTIONS, RISKS & QUESTIONS */}
             <div className="grid gap-6 lg:grid-cols-3">
-
               <ContextSection
                 title="Assumptions"
-                items={
-                  currentState.assumptions ||
-                  []
-                }
-                empty="No active assumptions."
-                warning
+                icon={HelpCircle}
+                type="assumptions"
+                items={currentState.assumptions || []}
+                empty="No active assumptions recorded."
               />
-
 
               <ContextSection
                 title="Risk Flags"
-                items={
-                  currentState.risk_flags ||
-                  []
-                }
-                empty="No active risk flags."
-                danger
+                icon={ShieldAlert}
+                type="risk_flags"
+                items={currentState.risk_flags || []}
+                empty="No risk flags identified."
               />
-
 
               <ContextSection
                 title="Open Questions"
-                items={
-                  currentState.open_questions ||
-                  []
-                }
-                empty="No open questions."
+                icon={HelpCircle}
+                type="open_questions"
+                items={currentState.open_questions || []}
+                empty="No unresolved questions."
               />
-
             </div>
-
           </div>
         )}
 
@@ -1448,12 +1572,21 @@ ${
 
             <div>
 
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#64748b]">
-                Team Members
-              </h3>
+              <div className="flex items-center justify-between gap-2 mb-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#64748b]">
+                  Team Members ({members.length})
+                </h3>
+                <button
+                  onClick={() => setAddMemberOpen(true)}
+                  className="flex items-center gap-1 rounded-md bg-[#2563eb] px-2.5 py-1 text-[11px] font-medium text-white hover:bg-blue-600 transition-colors shadow-sm"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Add Member
+                </button>
+              </div>
 
 
-              <div className="mt-4 space-y-2">
+              <div className="space-y-2">
 
                 <button
                   onClick={() =>
@@ -2067,6 +2200,82 @@ ${
 
 
       {/* ===================================================
+          ADD MEMBER MODAL
+      =================================================== */}
+      {addMemberOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-[#2a3040] bg-[#161a24] p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-2">
+                <UserPlus className="h-5 w-5 text-[#38bdf8]" />
+                <h3 className="font-semibold text-white">Add Team Member</h3>
+              </div>
+              <button
+                onClick={() => setAddMemberOpen(false)}
+                className="text-[#94a3b8] hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddMember} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-[#94a3b8]">Full Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Alex Chen"
+                  value={newMemberName}
+                  onChange={(e) => setNewMemberName(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-[#2a3040] bg-[#0f1117] px-3.5 py-2.5 text-sm text-white placeholder-[#64748b] focus:border-[#38bdf8] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#94a3b8]">Email Address *</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="alex@example.com"
+                  value={newMemberEmail}
+                  onChange={(e) => setNewMemberEmail(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-[#2a3040] bg-[#0f1117] px-3.5 py-2.5 text-sm text-white placeholder-[#64748b] focus:border-[#38bdf8] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#94a3b8]">Role</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Frontend Lead, ML Engineer"
+                  value={newMemberRole}
+                  onChange={(e) => setNewMemberRole(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-[#2a3040] bg-[#0f1117] px-3.5 py-2.5 text-sm text-white placeholder-[#64748b] focus:border-[#38bdf8] focus:outline-none"
+                />
+              </div>
+
+              <div className="mt-6 flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAddMemberOpen(false)}
+                  className="rounded-lg border border-[#2a3040] bg-[#1a202c] px-4 py-2 text-xs text-[#94a3b8] hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={addingMember || !newMemberEmail.trim()}
+                  className="flex items-center gap-2 rounded-lg bg-[#2563eb] px-4 py-2 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+                >
+                  {addingMember ? "Adding..." : "Add Teammate"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+
+      {/* ===================================================
           EXPORT MODAL
       =================================================== */}
 
@@ -2142,69 +2351,157 @@ function ContextSection({
   title,
   items,
   empty,
-  danger = false,
-  warning = false,
+  icon: Icon,
+  type = "default",
 }: {
   title: string;
-
   items: string[];
-
   empty: string;
-
-  danger?: boolean;
-
-  warning?: boolean;
+  icon?: React.ElementType;
+  type?:
+    | "goal"
+    | "next_actions"
+    | "progress"
+    | "decisions"
+    | "blockers"
+    | "assumptions"
+    | "risk_flags"
+    | "open_questions"
+    | "default";
 }) {
+  const themeMap = {
+    goal: {
+      border: "border-sky-500/30",
+      bg: "bg-gradient-to-br from-[#121e36]/90 via-[#151c2d]/90 to-[#101420]/90",
+      badgeBg: "bg-sky-500/10 text-sky-400 border-sky-500/30",
+      iconColor: "text-sky-400",
+      itemBg: "bg-[#182642]/80 border-sky-500/20 text-sky-100",
+    },
+    next_actions: {
+      border: "border-sky-500/20",
+      bg: "bg-[#141a27]/90",
+      badgeBg: "bg-sky-500/10 text-sky-400 border-sky-500/30",
+      iconColor: "text-sky-400",
+      itemBg: "bg-[#192338] border-sky-500/20 text-slate-200 hover:border-sky-500/40",
+    },
+    progress: {
+      border: "border-emerald-500/20",
+      bg: "bg-[#131d1a]/90",
+      badgeBg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+      iconColor: "text-emerald-400",
+      itemBg: "bg-[#182923] border-emerald-500/20 text-emerald-100 hover:border-emerald-500/40",
+    },
+    decisions: {
+      border: "border-purple-500/20",
+      bg: "bg-[#171524]/90",
+      badgeBg: "bg-purple-500/10 text-purple-400 border-purple-500/30",
+      iconColor: "text-purple-400",
+      itemBg: "bg-[#211d33] border-purple-500/20 text-purple-100 hover:border-purple-500/40",
+    },
+    blockers: {
+      border: items.length > 0 ? "border-rose-500/40" : "border-slate-800",
+      bg: items.length > 0 ? "bg-[#241318]/90" : "bg-[#161a24]/80",
+      badgeBg: items.length > 0 ? "bg-rose-500/20 text-rose-400 border-rose-500/40" : "bg-slate-800 text-slate-400 border-slate-700",
+      iconColor: items.length > 0 ? "text-rose-400 animate-pulse" : "text-slate-500",
+      itemBg: "bg-[#2d171e] border-rose-500/30 text-rose-100",
+    },
+    assumptions: {
+      border: "border-amber-500/20",
+      bg: "bg-[#1b1915]/90",
+      badgeBg: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+      iconColor: "text-amber-400",
+      itemBg: "bg-[#262118] border-amber-500/20 text-amber-100",
+    },
+    risk_flags: {
+      border: items.length > 0 ? "border-rose-500/30" : "border-slate-800",
+      bg: items.length > 0 ? "bg-[#201217]/90" : "bg-[#161a24]/80",
+      badgeBg: "bg-rose-500/10 text-rose-400 border-rose-500/30",
+      iconColor: "text-rose-400",
+      itemBg: "bg-[#29161c] border-rose-500/30 text-rose-100",
+    },
+    open_questions: {
+      border: "border-sky-500/20",
+      bg: "bg-[#131a26]/90",
+      badgeBg: "bg-sky-500/10 text-sky-400 border-sky-500/30",
+      iconColor: "text-sky-400",
+      itemBg: "bg-[#192436] border-sky-500/20 text-sky-100",
+    },
+    default: {
+      border: "border-[#222734]",
+      bg: "bg-[#161a24]",
+      badgeBg: "bg-slate-800 text-slate-400 border-slate-700",
+      iconColor: "text-slate-400",
+      itemBg: "bg-[#11141c] border-[#262c3a] text-[#cbd5e1]",
+    },
+  };
+
+  const theme = themeMap[type] || themeMap.default;
 
   return (
-    <section
-      className={`rounded-xl border p-5 ${
-        danger
-          ? "border-red-500/20 bg-red-500/5"
+    <section className={`rounded-xl border p-5 shadow-lg transition-all duration-200 ${theme.border} ${theme.bg}`}>
+      <div className="flex items-center justify-between border-b border-white/5 pb-3">
+        <div className="flex items-center gap-2.5">
+          {Icon && <Icon className={`h-4 w-4 ${theme.iconColor}`} />}
+          <h3 className="text-sm font-semibold tracking-wide text-white">{title}</h3>
+        </div>
 
-          : warning
-          ? "border-amber-500/20 bg-amber-500/5"
+        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-mono font-medium ${theme.badgeBg}`}>
+          {items.length}
+        </span>
+      </div>
 
-          : "border-[#222734] bg-[#161a24]"
-      }`}
-    >
-
-      <h3 className="text-sm font-semibold text-white">
-        {title}
-      </h3>
-
-
-      {items.length ===
-      0 ? (
-
-        <p className="mt-3 text-xs text-[#64748b]">
-          {empty}
-        </p>
-
+      {items.length === 0 ? (
+        <div className="mt-4 flex items-center justify-center rounded-lg border border-dashed border-white/10 p-5 text-center">
+          <p className="text-xs text-[#64748b]">{empty}</p>
+        </div>
       ) : (
-
-        <div className="mt-3 space-y-2">
-
-          {items.map(
-            (
-              item,
-              index
-            ) => (
-
+        <div className="mt-4 space-y-2.5">
+          {items.map((item, index) => {
+            return (
               <div
-                key={
-                  index
-                }
-                className="rounded-lg border border-[#262c3a] bg-[#11141c] p-3 text-sm text-[#cbd5e1]"
+                key={index}
+                className={`group flex items-start rounded-xl border p-3.5 text-sm transition-all duration-150 ${theme.itemBg}`}
               >
-                {item}
-              </div>
-            )
-          )}
+                {type === "next_actions" && (
+                  <span className="mr-3 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-sky-500/20 text-[11px] font-bold font-mono text-sky-400 border border-sky-500/30">
+                    {index + 1}
+                  </span>
+                )}
 
+                {type === "progress" && (
+                  <CheckCircle2 className="mr-3 mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                )}
+
+                {type === "decisions" && (
+                  <Lightbulb className="mr-3 mt-0.5 h-4 w-4 shrink-0 text-purple-400" />
+                )}
+
+                {type === "blockers" && (
+                  <AlertOctagon className="mr-3 mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+                )}
+
+                {type === "assumptions" && (
+                  <HelpCircle className="mr-3 mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                )}
+
+                {type === "risk_flags" && (
+                  <ShieldAlert className="mr-3 mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+                )}
+
+                {type === "open_questions" && (
+                  <HelpCircle className="mr-3 mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
+                )}
+
+                {type === "goal" && (
+                  <Target className="mr-3 mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
+                )}
+
+                <div className="flex-1 leading-relaxed">{item}</div>
+              </div>
+            );
+          })}
         </div>
       )}
-
     </section>
   );
 }
