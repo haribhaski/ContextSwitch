@@ -1904,3 +1904,93 @@ async def get_my_dashboard(
                 f"{str(exc)}"
             ),
         )
+        
+# ============================================================
+# ADD TEAM MEMBER
+# ============================================================
+
+@app.post(
+    "/teams/{team_id}/members"
+)
+async def add_team_member_endpoint(
+    team_id: str,
+    request: MemberAddRequest,
+
+    x_user_email: Optional[str] = Header(
+        default=None,
+        alias="X-User-Email",
+    ),
+):
+    current_user = (
+        require_current_user(
+            x_user_email
+        )
+    )
+
+    require_team_membership(
+        team_id=team_id,
+        email=current_user["email"],
+    )
+
+    email = (
+        request.email
+        .strip()
+        .lower()
+        if request.email
+        else ""
+    )
+
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Member email is required",
+        )
+
+    worker_id = (
+        request.worker_id
+        or email
+    )
+
+    name = (
+        request.name
+        or email.split("@")[0]
+    )
+
+    try:
+        add_team_member(
+            team_id=team_id,
+            worker_id=worker_id,
+            email=email,
+            name=name,
+            role=request.role or "member",
+        )
+
+        return {
+            "message":
+                "Team member added",
+
+            "team_id":
+                team_id,
+
+            "worker_id":
+                worker_id,
+
+            "name":
+                name,
+
+            "email":
+                email,
+
+            "role":
+                request.role
+                or "member",
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Failed to add team member: "
+                f"{str(exc)}"
+            ),
+        )

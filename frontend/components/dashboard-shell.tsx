@@ -2246,18 +2246,21 @@ export default function DashboardShell({
 
       {hasTeam && (
         <AddMemberModal
-          isOpen={
-            addMemberOpen
-          }
+          isOpen={addMemberOpen}
+
+          teamId={teamId}
+
+          user={{
+            name: user.name,
+            email: user.email,
+          }}
+
           onClose={() =>
-            setAddMemberOpen(
-              false
-            )
+            setAddMemberOpen(false)
           }
-          onAddMember={() => {
-            setAddMemberOpen(
-              false
-            );
+
+          onSuccess={() => {
+            setAddMemberOpen(false);
 
             void loadDashboard();
           }}
