@@ -523,11 +523,16 @@ def add_team_member(
         )
     )
 
-    db.collection(
+    index_ref = db.collection(
         "user_team_index"
     ).document(
         index_id
-    ).set(
+    )
+
+    # Keep the old top-level fields for compatibility, while the nested
+    # collection preserves every membership instead of overwriting the
+    # previous team whenever a user creates or joins another one.
+    index_ref.set(
         {
             "email":
                 normalized_email,
@@ -540,6 +545,20 @@ def add_team_member(
 
             "updated_at":
                 now,
+        },
+        merge=True,
+    )
+
+    index_ref.collection(
+        "teams"
+    ).document(
+        team_id
+    ).set(
+        {
+            "team_id": team_id,
+            "worker_id": worker_id,
+            "role": role,
+            "updated_at": now,
         },
         merge=True,
     )
@@ -664,12 +683,32 @@ def get_team_by_member_email(
     There is NEVER a default team such as team-alpha.
     """
 
+    teams = get_teams_by_member_email(email)
+    return teams[0] if teams else None
+
+
+def get_teams_by_member_email(
+    email: str,
+):
+    """Return every team an authenticated email belongs to."""
+
     normalized_email = (
         _normalize_email(email)
     )
 
     if not normalized_email:
-        return None
+        return []
+
+    found = []
+    found_ids = set()
+
+    def remember(team_id: Optional[str]):
+        if not team_id or team_id in found_ids:
+            return
+        team = get_team(team_id)
+        if team:
+            found_ids.add(team_id)
+            found.append(team)
 
     # --------------------------------------------------------
     # FAST PATH
@@ -691,6 +730,10 @@ def get_team_by_member_email(
         .get()
     )
 
+    index_ref = db.collection(
+        "user_team_index"
+    ).document(index_id)
+
     if index_doc.exists:
         index_data = (
             index_doc.to_dict()
@@ -703,13 +746,15 @@ def get_team_by_member_email(
             )
         )
 
-        if team_id:
-            team = get_team(
-                team_id
-            )
+        # The legacy field represents the most recently selected/created
+        # team, so keep it first for backwards-compatible active-team UX.
+        remember(team_id)
 
-            if team:
-                return team
+    for membership_doc in (
+        index_ref.collection("teams").stream()
+    ):
+        membership = membership_doc.to_dict() or {}
+        remember(membership.get("team_id") or membership_doc.id)
 
     # --------------------------------------------------------
     # LEGACY FALLBACK
@@ -761,30 +806,13 @@ def get_team_by_member_email(
                     or member_doc.id
                 )
 
-                # Self-heal the new index.
-                db.collection(
-                    "user_team_index"
-                ).document(
-                    index_id
-                ).set({
-                    "email":
-                        normalized_email,
-
-                    "team_id":
-                        team_id,
-
-                    "worker_id":
-                        worker_id,
-
-                    "updated_at":
-                        _now(),
-                })
-
-                return (
-                    get_team(
-                        team_id
-                    )
-                )
+                index_ref.collection("teams").document(team_id).set({
+                    "team_id": team_id,
+                    "worker_id": worker_id,
+                    "updated_at": _now(),
+                }, merge=True)
+                remember(team_id)
+                continue
 
         # ----------------------------------------------------
         # Check legacy project members
@@ -863,13 +891,9 @@ def get_team_by_member_email(
                         or "member",
                 )
 
-                return (
-                    get_team(
-                        team_id
-                    )
-                )
+                remember(team_id)
 
-    return None
+    return found
 
 
 # ============================================================

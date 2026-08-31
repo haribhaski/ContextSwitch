@@ -7,9 +7,7 @@ import {
   AlertOctagon,
   AlertTriangle,
   ArrowLeft,
-  ArrowRight,
   Brain,
-  Check,
   CheckCircle2,
   ChevronRight,
   Copy,
@@ -25,7 +23,6 @@ import {
   UserPlus,
   Users,
   XCircle,
-  Zap,
 } from "lucide-react";
 
 import Link from "next/link";
@@ -74,6 +71,8 @@ type Member = {
 
   email?: string;
 
+  role?: string;
+
   joined_at?: string;
 };
 
@@ -115,6 +114,15 @@ type Entry = {
   source: string;
 
   timestamp?: string;
+
+  actor?: string;
+
+  email?: string;
+
+  metadata?: {
+    actor?: string;
+    email?: string;
+  };
 };
 
 
@@ -338,8 +346,8 @@ export default function ProjectDetailsShell({
       setNewMemberRole("Developer");
       setSyncToast(`Added new team member: ${newMemberName || newMemberEmail}`);
       setTimeout(() => setSyncToast(null), 4000);
-    } catch (err: any) {
-      alert(`Error adding member: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Error adding member: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setAddingMember(false);
     }
@@ -661,8 +669,8 @@ export default function ProjectDetailsShell({
     ? entries.filter((entry) => {
         const selected = selectedMember.toLowerCase();
         const wId = (entry.worker_id || "").toLowerCase();
-        const actor = (entry.actor || (entry as any).metadata?.actor || "").toLowerCase();
-        const email = ((entry as any).email || (entry as any).metadata?.email || "").toLowerCase();
+        const actor = (entry.actor || entry.metadata?.actor || "").toLowerCase();
+        const email = (entry.email || entry.metadata?.email || "").toLowerCase();
         return (
           wId.includes(selected) ||
           (wId && selected.includes(wId)) ||
@@ -673,6 +681,28 @@ export default function ProjectDetailsShell({
         );
       })
     : entries;
+
+
+  const selectedMemberRecord = members.find(
+    (member) =>
+      member.worker_id.toLowerCase() ===
+      selectedMember?.toLowerCase()
+  );
+
+
+  function displayMemberName(
+    workerId: string,
+  ) {
+    const normalized = workerId.toLowerCase();
+    const member = members.find((candidate) => {
+      const id = (candidate.worker_id || "").toLowerCase();
+      const email = (candidate.email || "").toLowerCase();
+      const name = (candidate.name || "").toLowerCase();
+      return normalized === id || normalized === email || normalized === name;
+    });
+
+    return member?.name || workerId;
+  }
 
 
   /* =======================================================
@@ -1636,9 +1666,13 @@ ${
                             : "bg-[#161a24] text-[#94a3b8]"
                         }`}
                       >
-                        <span>
-                          {member.name ||
-                            member.worker_id}
+                        <span className="min-w-0">
+                          <span className="block truncate text-white">
+                            {member.name || member.email || member.worker_id}
+                          </span>
+                          <span className="block truncate text-[10px] text-[#64748b]">
+                            {member.email || member.role || "Team member"}
+                          </span>
                         </span>
 
                         <ChevronRight
@@ -1664,7 +1698,7 @@ ${
                 <h2 className="font-semibold text-white">
 
                   {selectedMember
-                    ? `Context for ${selectedMember}`
+                    ? `Context for ${selectedMemberRecord?.name || selectedMember}`
                     : "All teammate contributions"}
 
                 </h2>
@@ -1841,7 +1875,7 @@ ${
 
                               <span className="rounded bg-[#1e293b] px-2 py-1 text-xs text-white">
                                 {
-                                  entry.worker_id
+                                  displayMemberName(entry.worker_id)
                                 }
                               </span>
 
@@ -1925,7 +1959,7 @@ ${
 
                       <strong className="text-sm text-[#38bdf8]">
                         {
-                          entry.worker_id
+                          displayMemberName(entry.worker_id)
                         }
                       </strong>
 

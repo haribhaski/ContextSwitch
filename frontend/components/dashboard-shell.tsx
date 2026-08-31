@@ -153,7 +153,16 @@ type DashboardStats = {
   blockers: number;
 };
 
+type DashboardTeam = {
+  id?: string;
+  team_id: string;
+  name: string;
+  project_count?: number;
+  member_count?: number;
+};
+
 type DashboardResponse = {
+  teams?: DashboardTeam[];
   team_id?: string;
   team_name?: string;
 
@@ -341,6 +350,9 @@ export default function DashboardShell({
     DashboardProject[]
   >([]);
 
+  const [teams, setTeams] =
+    useState<DashboardTeam[]>([]);
+
   const [
     members,
     setMembers,
@@ -413,6 +425,7 @@ export default function DashboardShell({
   const clearDashboardData =
     useCallback(() => {
       setProjects([]);
+      setTeams([]);
       setMembers([]);
       setActivities([]);
       setConflicts([]);
@@ -525,6 +538,11 @@ export default function DashboardShell({
             DashboardResponse =
             await response.json();
 
+          const loadedTeams =
+            Array.isArray(data.teams)
+              ? data.teams
+              : [];
+
           const returnedTeamId =
             typeof data.team_id ===
             "string"
@@ -539,7 +557,8 @@ export default function DashboardShell({
             );
           }
 
-          setHasTeam(true);
+          setHasTeam(loadedTeams.length > 0 || Boolean(returnedTeamId));
+          setTeams(loadedTeams);
 
           setTeamId(
             returnedTeamId
@@ -554,47 +573,28 @@ export default function DashboardShell({
             Array.isArray(
               data.projects
             )
-              ? data.projects.filter(
-                  (project) =>
-                    project.team_id ===
-                    returnedTeamId
-                )
+              ? data.projects
               : [];
 
           const loadedMembers =
             Array.isArray(
               data.members
             )
-              ? data.members.filter(
-                  (member) =>
-                    !member.team_id ||
-                    member.team_id ===
-                      returnedTeamId
-                )
+              ? data.members
               : [];
 
           const loadedActivities =
             Array.isArray(
               data.recent_entries
             )
-              ? data.recent_entries.filter(
-                  (entry) =>
-                    !entry.team_id ||
-                    entry.team_id ===
-                      returnedTeamId
-                )
+              ? data.recent_entries
               : [];
 
           const loadedConflicts =
             Array.isArray(
               data.conflicts
             )
-              ? data.conflicts.filter(
-                  (conflict) =>
-                    !conflict.team_id ||
-                    conflict.team_id ===
-                      returnedTeamId
-                )
+              ? data.conflicts
               : [];
 
           setProjects(
@@ -690,7 +690,11 @@ export default function DashboardShell({
     );
 
   useEffect(() => {
-    void loadDashboard();
+    const timer = window.setTimeout(() => {
+      void loadDashboard();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [loadDashboard]);
 
   /* =======================================================
@@ -713,14 +717,15 @@ export default function DashboardShell({
       (!stored &&
         prefersDark);
 
-    setDark(
-      shouldUseDark
-    );
+    const timer = window.setTimeout(() => {
+      setDark(shouldUseDark);
+      document.documentElement.classList.toggle(
+        "dark",
+        shouldUseDark
+      );
+    }, 0);
 
-    document.documentElement.classList.toggle(
-      "dark",
-      shouldUseDark
-    );
+    return () => window.clearTimeout(timer);
   }, []);
 
   function toggleTheme() {
@@ -761,6 +766,12 @@ export default function DashboardShell({
     setCreateProjectOpen(
       true
     );
+  }
+
+  function selectTeam(team: DashboardTeam) {
+    setTeamId(team.team_id);
+    setTeamName(team.name || team.team_id);
+    setHasTeam(true);
   }
 
   /* =======================================================
@@ -835,6 +846,10 @@ export default function DashboardShell({
         );
       }
     );
+
+  const selectedTeamMembers = members.filter(
+    (member) => !member.team_id || member.team_id === teamId
+  );
 
   const unresolvedConflicts =
     conflicts.filter(
@@ -1049,22 +1064,21 @@ export default function DashboardShell({
 
         <div className="cs-sidebar-section">
           <div className="cs-sidebar-label">
-            Your team
+            Your teams
           </div>
 
-          {hasTeam ? (
+          {teams.map((team, index) => (
             <TeamItem
-              name={
-                teamName
-              }
-              color="blue"
-              onClick={() =>
-                setActiveTab(
-                  "teams"
-                )
-              }
+              key={team.team_id}
+              name={team.name || team.team_id}
+              color={index % 3 === 0 ? "blue" : index % 3 === 1 ? "green" : "orange"}
+              onClick={() => {
+                selectTeam(team);
+                setActiveTab("teams");
+              }}
             />
-          ) : (
+          ))}
+
             <button
               onClick={() =>
                 setCreateTeamOpen(
@@ -1077,9 +1091,8 @@ export default function DashboardShell({
                 size={16}
               />
 
-              Create team
+              {hasTeam ? "New team" : "Create team"}
             </button>
-          )}
         </div>
 
         <div className="cs-sidebar-bottom">
@@ -1301,7 +1314,7 @@ export default function DashboardShell({
 
                   <p>
                     {hasTeam
-                      ? `Shared context for ${teamName}.`
+                      ? `Shared context across ${teams.length} team${teams.length === 1 ? "" : "s"}.`
                       : "Create your team workspace to start using ContextSwitch."}
                   </p>
                 </div>
@@ -1651,8 +1664,8 @@ export default function DashboardShell({
 
                         <p>
                           {hasTeam
-                            ? `${members.length} member${
-                                members.length ===
+                            ? `${selectedTeamMembers.length} member${
+                                selectedTeamMembers.length ===
                                 1
                                   ? ""
                                   : "s"
@@ -1678,7 +1691,7 @@ export default function DashboardShell({
                     </div>
 
                     <div className="cs-team-list">
-                      {members.length ===
+                      {selectedTeamMembers.length ===
                       0 ? (
                         <EmptyState
                           text={
@@ -1688,7 +1701,7 @@ export default function DashboardShell({
                           }
                         />
                       ) : (
-                        members
+                        selectedTeamMembers
                           .slice(
                             0,
                             5
@@ -1828,7 +1841,7 @@ export default function DashboardShell({
                   </p>
                 </div>
 
-                {!hasTeam && (
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
                     className="cs-primary-button"
                     onClick={() =>
@@ -1843,11 +1856,10 @@ export default function DashboardShell({
 
                     Create team
                   </button>
-                )}
 
-                {hasTeam && (
+                  {hasTeam && (
                   <button
-                    className="cs-primary-button"
+                    className="flex items-center gap-2 rounded-lg border border-[#334155] bg-[#1e293b] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#273449]"
                     onClick={() =>
                       setAddMemberOpen(
                         true
@@ -1860,7 +1872,8 @@ export default function DashboardShell({
 
                     Add member
                   </button>
-                )}
+                  )}
+                </div>
               </div>
 
               {!hasTeam ? (
@@ -1901,6 +1914,44 @@ export default function DashboardShell({
                   </button>
                 </div>
               ) : (
+                <div className="space-y-5">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {teams.map((team) => {
+                      const selected = team.team_id === teamId;
+                      return (
+                        <button
+                          key={team.team_id}
+                          type="button"
+                          onClick={() => selectTeam(team)}
+                          className={`rounded-xl border p-4 text-left transition ${
+                            selected
+                              ? "border-[#38bdf8] bg-[#0c4a6e]/30"
+                              : "border-[#222734] bg-[#161a24] hover:border-[#334155]"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <h2 className="truncate font-semibold text-white">
+                                {team.name || team.team_id}
+                              </h2>
+                              <p className="mt-1 truncate font-mono text-[11px] text-[#64748b]">
+                                {team.team_id}
+                              </p>
+                            </div>
+                            {selected && (
+                              <span className="rounded bg-[#38bdf8]/10 px-2 py-1 text-[10px] font-semibold text-[#38bdf8]">
+                                Selected
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-3 text-xs text-[#94a3b8]">
+                            {team.project_count ?? 0} projects · {team.member_count ?? 0} members
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+
                 <div className="rounded-xl border border-[#222734] bg-[#161a24] p-6">
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -1927,10 +1978,10 @@ export default function DashboardShell({
 
                         <div className="mt-1 text-xs text-[#64748b]">
                           {
-                            members.length
+                            selectedTeamMembers.length
                           }{" "}
                           member
-                          {members.length ===
+                          {selectedTeamMembers.length ===
                           1
                             ? ""
                             : "s"}
@@ -1952,10 +2003,10 @@ export default function DashboardShell({
                       </button>
                     </div>
 
-                    {members.length >
+                    {selectedTeamMembers.length >
                     0 ? (
                       <div className="mt-4 space-y-2">
-                        {members.map(
+                        {selectedTeamMembers.map(
                           (
                             member
                           ) => (
@@ -2035,6 +2086,7 @@ export default function DashboardShell({
                       Add member
                     </button>
                   </div>
+                </div>
                 </div>
               )}
             </section>

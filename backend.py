@@ -48,7 +48,7 @@ from contextswitch.storage import (
     create_team,
     get_team,
     add_team_member,
-    get_team_by_member_email,
+    get_teams_by_member_email,
     get_team_members,
 
     # Projects
@@ -208,7 +208,6 @@ def require_current_user(
             status_code=401,
             detail="User email is required",
         )
-
     name = (
         x_user_name.strip()
         if x_user_name
@@ -786,9 +785,10 @@ async def get_project_endpoint(
             detail="Project not found",
         )
 
-    members = get_members(
+    # People-wise context must use the official team roster. Project members
+    # can include historical CLI aliases, GitHub actors, and old demo data.
+    members = get_team_members(
         team_id=team_id,
-        project_id=project_id,
     )
 
     conflicts = get_conflicts(
@@ -1794,12 +1794,14 @@ async def get_my_dashboard(
         # 1. FAST email → team lookup
         # ----------------------------------------------------
 
-        team = (
-            get_team_by_member_email(
+        teams = (
+            get_teams_by_member_email(
                 email=
                     user["email"]
             )
         )
+
+        team = teams[0] if teams else None
 
         if not team:
 
@@ -1982,10 +1984,81 @@ async def get_my_dashboard(
             ] = team_id
 
         # ----------------------------------------------------
-        # 8. RESPONSE
+        # 8. INCLUDE EVERY OTHER TEAM MEMBERSHIP
+        # ----------------------------------------------------
+
+        for additional_team in teams[1:]:
+            additional_team_id = additional_team.get("team_id")
+            if not additional_team_id:
+                continue
+
+            additional_projects = get_team_projects(additional_team_id)
+            additional_members = get_team_members(additional_team_id)
+            additional_entries = get_team_recent_entries(additional_team_id, limit=50)
+
+            for project in additional_projects:
+                project_id = project.get("project_id")
+                project["team_id"] = additional_team_id
+                state = project.get("current_state") or {}
+                project["blocker_count"] = len(state.get("blockers") or [])
+                blocker_count += project["blocker_count"]
+
+                if not project_id:
+                    continue
+
+                for conflict in get_conflicts(
+                    team_id=additional_team_id,
+                    project_id=project_id,
+                    only_unresolved=True,
+                ):
+                    conflict["team_id"] = additional_team_id
+                    conflict["project_id"] = project_id
+                    conflict["project_name"] = (
+                        conflict.get("project_name")
+                        or project.get("name")
+                        or project_id
+                    )
+                    conflicts.append(conflict)
+
+            for member in additional_members:
+                member["team_id"] = additional_team_id
+
+            for entry in additional_entries:
+                entry["team_id"] = additional_team_id
+
+            projects.extend(additional_projects)
+            members.extend(additional_members)
+            recent_entries.extend(additional_entries)
+
+        recent_entries.sort(
+            key=lambda entry: str(entry.get("timestamp") or ""),
+            reverse=True,
+        )
+        recent_entries = recent_entries[:50]
+
+        team_summaries = []
+        for user_team in teams:
+            user_team_id = user_team.get("team_id")
+            team_summaries.append({
+                **user_team,
+                "project_count": len([
+                    project for project in projects
+                    if project.get("team_id") == user_team_id
+                ]),
+                "member_count": len([
+                    member for member in members
+                    if member.get("team_id") == user_team_id
+                ]),
+            })
+
+        # ----------------------------------------------------
+        # 9. RESPONSE
         # ----------------------------------------------------
 
         return {
+            "teams":
+                team_summaries,
+
             "team_id":
                 team_id,
 
@@ -2123,4 +2196,5 @@ async def add_team_member_endpoint(
                 f"{str(exc)}"
             ),
         )
-        
+
+# End of API routes.
