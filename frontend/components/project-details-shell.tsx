@@ -657,18 +657,22 @@ export default function ProjectDetailsShell({
      MEMBER-WISE ENTRIES
   ======================================================= */
 
-  const memberFilteredEntries =
-    selectedMember
-
-      ? entries.filter(
-          (entry) =>
-            entry.worker_id
-              .toLowerCase() ===
-            selectedMember
-              .toLowerCase()
-        )
-
-      : entries;
+  const memberFilteredEntries = selectedMember
+    ? entries.filter((entry) => {
+        const selected = selectedMember.toLowerCase();
+        const wId = (entry.worker_id || "").toLowerCase();
+        const actor = (entry.actor || (entry as any).metadata?.actor || "").toLowerCase();
+        const email = ((entry as any).email || (entry as any).metadata?.email || "").toLowerCase();
+        return (
+          wId.includes(selected) ||
+          (wId && selected.includes(wId)) ||
+          actor.includes(selected) ||
+          (actor && selected.includes(actor)) ||
+          email.includes(selected) ||
+          (email && selected.includes(email))
+        );
+      })
+    : entries;
 
 
   /* =======================================================

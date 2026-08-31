@@ -981,6 +981,71 @@ async def get_members_endpoint(
 
 
 # ============================================================
+# GET MEMBER MEMORY
+# ============================================================
+
+@app.get(
+    "/teams/{team_id}/projects/{project_id}/members/{worker_id}/memory"
+)
+async def get_member_memory_endpoint(
+    team_id: str,
+    project_id: str,
+    worker_id: str,
+):
+    project = get_project(
+        team_id=team_id,
+        project_id=project_id,
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found",
+        )
+
+    entries = get_entries(
+        team_id=team_id,
+        project_id=project_id,
+        limit=500,
+    )
+
+    norm_worker = worker_id.strip().lower()
+
+    filtered_items = []
+    for entry in entries:
+        w_id = (entry.get("worker_id") or "").lower()
+        actor = (entry.get("actor") or entry.get("metadata", {}).get("actor") or "").lower()
+        email = (entry.get("email") or entry.get("metadata", {}).get("email") or "").lower()
+
+        if (norm_worker in w_id or norm_worker in actor or norm_worker in email or
+            (w_id and w_id in norm_worker) or (actor and actor in norm_worker) or (email and email in norm_worker)):
+
+            item_type = entry.get("type") or entry.get("entry_type") or "decision"
+            if item_type in ["commit", "pull_request", "code_change", "completed"]:
+                item_type = "completed"
+            elif item_type not in ["decision", "micro_decision", "assumption", "risk_flag", "open_question", "completed", "failure", "blocker"]:
+                item_type = "decision"
+
+            filtered_items.append({
+                "id": entry.get("id"),
+                "memory_id": entry.get("id"),
+                "worker_id": entry.get("worker_id") or worker_id,
+                "type": item_type,
+                "title": entry.get("content", "")[:60],
+                "content": entry.get("content", ""),
+                "reason": entry.get("metadata", {}).get("reason"),
+                "source": entry.get("source", "activity"),
+                "created_at": entry.get("created_at"),
+            })
+
+    return {
+        "worker_id": worker_id,
+        "items": filtered_items,
+        "count": len(filtered_items),
+    }
+
+
+# ============================================================
 # ADD PROJECT ENTRY
 # ============================================================
 
@@ -1584,6 +1649,44 @@ async def sync_github_endpoint(
         # ----------------------------------------------------
 
         if evidence:
+            # Auto-detect GitHub actors and save individual commits/PRs into project entries
+            for item in evidence:
+                actor = item.get("actor")
+                if actor and actor != "Unknown author":
+                    try:
+                        add_member(
+                            team_id=team_id,
+                            project_id=project_id,
+                            worker_id=actor,
+                            name=actor,
+                            email=actor if "@" in actor else f"{actor}@github.com",
+                            role="GitHub Collaborator",
+                        )
+                        add_team_member(
+                            team_id=team_id,
+                            worker_id=actor,
+                            email=actor if "@" in actor else f"{actor}@github.com",
+                            name=actor,
+                            role="GitHub Collaborator",
+                        )
+                    except Exception:
+                        pass
+
+                item_type = item.get("type")
+                content = item.get("content")
+                if item_type in ["commit", "pull_request", "issue"] and content:
+                    try:
+                        add_entry(
+                            team_id=team_id,
+                            project_id=project_id,
+                            worker_id=actor or "GitHub",
+                            entry_type=item_type,
+                            content=content,
+                            source="github",
+                            metadata=item.get("metadata", {}),
+                        )
+                    except Exception:
+                        pass
 
             save_github_evidence_batch(
                 team_id=team_id,
