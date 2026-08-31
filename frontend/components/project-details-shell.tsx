@@ -66,243 +66,16 @@ type ProjectDetailsShellProps = {
   projectId: string;
 };
 
-// Rich Project-Specific Datasets
-const projectPresets: Record<
-  string,
-  {
-    name: string;
-    state: ProjectState;
-    members: Member[];
-    entries: Entry[];
-    conflicts: Conflict[];
-    githubRepo?: string;
-  }
-> = {
-  contextswitch: {
-    name: "ContextSwitch",
-    githubRepo: "haribhaski/Financial-Specific-CHAT-BOT-Using-Hybrid-RAG-System-with-Citation-Enforcement",
-    state: {
-      goal: "Maintain team context & decision state across AI coding sessions",
-      progress: [
-        "Gemini Developer API integration operational",
-        "Google ADK Agent & runner pipeline configured",
-        "FastAPI endpoint & Next.js dashboard shell completed",
-      ],
-      decisions: [
-        "Use Gemini 3 Flash for fast structured state reconciliation",
-        "Use local in-memory fallback when GCP credentials are not logged in",
-      ],
-      failures: [
-        "Raw un-validated prompt output caused JSON parsing errors (fixed with Pydantic)",
-      ],
-      blockers: [
-        "Ensure redirect URIs in Google Cloud Console match local environment",
-      ],
-      open_questions: ["How to best handle multi-agent concurrent writes?"],
-      dependencies: ["Google ADK Python SDK v2.8", "FastAPI backend service"],
-      next_actions: [
-        "Finalize conflict resolution flow in frontend",
-        "Test end-to-end GitHub commit reconciliation",
-      ],
-    },
-    members: [
-      { id: "HB", worker_id: "Hariharan", name: "Hariharan (HB)" },
-      { id: "JK", worker_id: "Jeevan", name: "Jeevan (JK)" },
-      { id: "DS", worker_id: "Dhanya", name: "Dhanya (DS)" },
-      { id: "JG", worker_id: "Jagan", name: "Jagan (JG)" },
-    ],
-    entries: [
-      {
-        id: "e1",
-        worker_id: "Jeevan",
-        type: "decision",
-        content:
-          "Use Pinecone because retrieval quality is higher for long documents",
-        source: "Claude",
-      },
-      {
-        id: "e2",
-        worker_id: "Hariharan",
-        type: "decision",
-        content:
-          "Use ChromaDB to lower operational cost and keep setup simple locally",
-        source: "Cursor",
-      },
-      {
-        id: "e3",
-        worker_id: "Dhanya",
-        type: "completed",
-        content: "Authentication flow and token verification implementation",
-        source: "Gemini",
-      },
-      {
-        id: "e4",
-        worker_id: "Jagan",
-        type: "blocker",
-        content: "Reranking latency is currently above 450ms SLA target",
-        source: "Antigravity",
-      },
-    ],
-    conflicts: [
-      {
-        id: "c1",
-        conflict_id: "c1",
-        topic: "Vector Database Selection",
-        side_a: {
-          worker_id: "Hariharan",
-          position:
-            "Use ChromaDB to lower cost and keep setup simple locally",
-        },
-        side_b: {
-          worker_id: "Jeevan",
-          position:
-            "Use Pinecone because vector indexing quality is higher",
-        },
-        status: "unresolved",
-      },
-    ],
-  },
-  "medical-ai": {
-    name: "Medical AI",
-    githubRepo: "haribhaski/Medical-Retinal-Segmentation",
-    state: {
-      goal: "Retinal vessel segmentation experiments and clinical evaluation",
-      progress: [
-        "U-Net baseline trained on DRIVE dataset (Dice score 0.81)",
-        "Data augmentation pipeline added for illumination variations",
-      ],
-      decisions: [
-        "Use Focal Tversky Loss to handle vessel sparsity in fundus images",
-        "Standardize patch size to 512x512 with overlap tile strategy",
-      ],
-      failures: [
-        "Standard cross-entropy loss collapsed background predictions on thin capillaries",
-      ],
-      blockers: [
-        "CUDA Out Of Memory error when training Attention U-Net at batch size > 8",
-      ],
-      open_questions: ["Does test-time augmentation improve micro-vessel segmentation?"],
-      dependencies: ["PyTorch 2.1", "DRIVE dataset", "TorchVision 0.16"],
-      next_actions: [
-        "Implement gradient accumulation to train Attention U-Net on single GPU",
-        "Evaluate model on STARE test set for cross-dataset generalization",
-      ],
-    },
-    members: [
-      { id: "HB", worker_id: "Hariharan", name: "Hariharan (HB)" },
-      { id: "DS", worker_id: "Dhanya", name: "Dhanya (DS)" },
-      { id: "JK", worker_id: "Jeevan", name: "Jeevan (JK)" },
-    ],
-    entries: [
-      {
-        id: "me1",
-        worker_id: "Hariharan",
-        type: "completed",
-        content: "Trained baseline U-Net on DRIVE dataset with 0.81 Dice coefficient",
-        source: "Cursor",
-      },
-      {
-        id: "me2",
-        worker_id: "Dhanya",
-        type: "decision",
-        content: "Adopt Focal Tversky loss to overcome vessel sparsity ratio",
-        source: "Claude",
-      },
-      {
-        id: "me3",
-        worker_id: "Jeevan",
-        type: "blocker",
-        content: "GPU VRAM bottleneck on Attention U-Net patch size 512x512",
-        source: "Antigravity",
-      },
-    ],
-    conflicts: [],
-  },
-  "memory-llm": {
-    name: "Memory LLM",
-    githubRepo: "haribhaski/Long-Context-Memory-LLM",
-    state: {
-      goal: "Long-context memory architecture and retrieval compression experiments",
-      progress: [
-        "KV cache compression bench set up for 128k context window",
-        "Effective rank and slot utilization calculation script verified",
-      ],
-      decisions: [
-        "Use scalar gating for initial memory compression prototype",
-        "Evaluate vector gating against scalar gating on slot collapse rate",
-      ],
-      failures: [
-        "Uniform quantization dropped long-range dependency recall by 14%",
-      ],
-      blockers: [
-        "75% of memory slots remain unused under standard scalar gate initialization",
-      ],
-      open_questions: ["Does vector gating prevent slot collapse across long sequences?"],
-      dependencies: ["FlashAttention-2", "PyTorch 2.2", "Transformers 4.40"],
-      next_actions: [
-        "Compare scalar and vector gate checkpoints using effective rank",
-        "Benchmark retrieval perplexity on Needle In A Haystack benchmark",
-      ],
-    },
-    members: [
-      { id: "HB", worker_id: "Hariharan", name: "Hariharan (HB)" },
-      { id: "JK", worker_id: "Jeevan", name: "Jeevan (JK)" },
-      { id: "JG", worker_id: "Jagan", name: "Jagan (JG)" },
-      { id: "DS", worker_id: "Dhanya", name: "Dhanya (DS)" },
-    ],
-    entries: [
-      {
-        id: "ml1",
-        worker_id: "Jagan",
-        type: "decision",
-        content: "Compare scalar and vector gating using effective rank metrics",
-        source: "Gemini",
-      },
-      {
-        id: "ml2",
-        worker_id: "Jeevan",
-        type: "completed",
-        content: "Implemented scalar gating module in model checkpoint",
-        source: "Cursor",
-      },
-      {
-        id: "ml3",
-        worker_id: "Hariharan",
-        type: "blocker",
-        content: "Slot collapse detected: 75% memory slots unutilized in scalar gate",
-        source: "Antigravity",
-      },
-    ],
-    conflicts: [
-      {
-        id: "mc1",
-        conflict_id: "mc1",
-        topic: "Gating Mechanism Choice",
-        side_a: {
-          worker_id: "Jeevan",
-          position: "Use scalar gate for lower computation overhead per token",
-        },
-        side_b: {
-          worker_id: "Jagan",
-          position: "Use vector gate to prevent slot collapse on long context",
-        },
-        status: "unresolved",
-      },
-    ],
-  },
-};
 
 export default function ProjectDetailsShell({
   teamId,
   projectId,
 }: ProjectDetailsShellProps) {
-  const preset = projectPresets[projectId] || projectPresets["contextswitch"];
 
   const [activeTab, setActiveTab] = useState<
     "overview" | "people" | "activity" | "conflicts"
   >("overview");
 
-  const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncToast, setSyncToast] = useState<string | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -315,51 +88,106 @@ export default function ProjectDetailsShell({
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [resolutionText, setResolutionText] = useState("");
 
-  // Dynamic state loaded from API or Preset
-  const [projectName, setProjectName] = useState(preset.name);
-  const [githubRepo, setGithubRepo] = useState(preset.githubRepo || `${teamId}/${projectId}`);
-  const [currentState, setCurrentState] = useState<ProjectState>(preset.state);
-  const [members, setMembers] = useState<Member[]>(preset.members);
-  const [entries, setEntries] = useState<Entry[]>(preset.entries);
-  const [conflicts, setConflicts] = useState<Conflict[]>(preset.conflicts);
+  // Dynamic state loaded only from FastAPI / Firestore
+  const [projectName, setProjectName] = useState("");
+  const [githubRepo, setGithubRepo] = useState("");
+  const [currentState, setCurrentState] = useState<ProjectState>({});
+  const [members, setMembers] = useState<Member[]>([]);
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [conflicts, setConflicts] = useState<Conflict[]>([]);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadProjectData() {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const apiUrl =
+        process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
+      const [projectRes, entriesRes] = await Promise.all([
+        fetch(`${apiUrl}/teams/${teamId}/projects/${projectId}`, {
+          cache: "no-store",
+        }),
+        fetch(`${apiUrl}/teams/${teamId}/projects/${projectId}/entries`, {
+          cache: "no-store",
+        }),
+      ]);
+
+      if (!projectRes.ok) {
+        const body = await projectRes.text();
+        throw new Error(
+          `Failed to load project (${projectRes.status}): ${body || projectRes.statusText}`
+        );
+      }
+
+      if (!entriesRes.ok) {
+        const body = await entriesRes.text();
+        throw new Error(
+          `Failed to load entries (${entriesRes.status}): ${body || entriesRes.statusText}`
+        );
+      }
+
+      const data = await projectRes.json();
+      const entriesData = await entriesRes.json();
+
+      if (!data.project) {
+        throw new Error("Project not found");
+      }
+
+      const state = data.project.current_state || {};
+
+      setProjectName(data.project.name || projectId);
+      setGithubRepo(
+        data.project.github_owner && data.project.github_repo
+          ? `${data.project.github_owner}/${data.project.github_repo}`
+          : ""
+      );
+
+      setCurrentState({
+        goal: state.goal || "",
+        progress: state.progress || state.completed || [],
+        decisions: state.decisions || [],
+        failures: state.failures || state.failed || [],
+        blockers: state.blockers || [],
+        open_questions: state.open_questions || [],
+        dependencies: state.dependencies || [],
+        next_actions: state.next_actions || [],
+      });
+
+      // IMPORTANT: empty arrays are real Firestore data.
+      // Never preserve old/fake values when backend returns [].
+      setMembers(Array.isArray(data.members) ? data.members : []);
+      setConflicts(
+        Array.isArray(data.active_conflicts) ? data.active_conflicts : []
+      );
+      setEntries(
+        Array.isArray(entriesData.entries) ? entriesData.entries : []
+      );
+    } catch (err) {
+      console.error("Failed to load project data:", err);
+
+      setProjectName("");
+      setGithubRepo("");
+      setCurrentState({});
+      setMembers([]);
+      setEntries([]);
+      setConflicts([]);
+
+      setError(
+        err instanceof Error ? err.message : "Failed to load project data"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-        const res = await fetch(`${apiUrl}/teams/${teamId}/projects/${projectId}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.project) {
-            setProjectName(data.project.name || preset.name);
-            if (data.project.current_state?.goal) {
-              setCurrentState(data.project.current_state);
-            }
-            if (data.project.github_owner && data.project.github_repo) {
-              setGithubRepo(`${data.project.github_owner}/${data.project.github_repo}`);
-            }
-          }
-          if (data.members?.length) setMembers(data.members);
-          if (data.active_conflicts?.length) setConflicts(data.active_conflicts);
-        }
-
-        const entriesRes = await fetch(
-          `${apiUrl}/teams/${teamId}/projects/${projectId}/entries`
-        );
-        if (entriesRes.ok) {
-          const entriesData = await entriesRes.json();
-          if (entriesData.entries?.length) setEntries(entriesData.entries);
-        }
-      } catch (err) {
-        console.warn("Loaded local preset data for project view.");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchData();
+    void loadProjectData();
   }, [teamId, projectId]);
+
 
   // Member filtering for People-wise context
   const memberFilteredEntries = selectedMember
@@ -368,86 +196,90 @@ export default function ProjectDetailsShell({
       )
     : entries;
 
-  // On-demand GitHub Sync with live visual Toast Feedback
+  // On-demand GitHub sync.
+  // The backend writes/reconciles Firestore; the frontend then reloads Firestore data.
   async function handleSyncGitHub() {
     setSyncing(true);
     setSyncToast(null);
+
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const apiUrl =
+        process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
       const res = await fetch(
         `${apiUrl}/teams/${teamId}/projects/${projectId}/sync-github`,
-        { method: "POST" }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setSyncToast(`GitHub Sync Success! Fetched ${data.evidence_count} evidence items from ${githubRepo}. Gemini reconciled project state.`);
-      } else {
-        setSyncToast(`Synced latest commit activity from ${githubRepo}. State reconciled via Gemini ADK.`);
-      }
-    } catch (e) {
-      setSyncToast(`Synced latest commit activity from ${githubRepo}. State reconciled via Gemini ADK.`);
-    } finally {
-      // Add a simulated fresh progress item and linked GitHub entry
-      setCurrentState((prev) => ({
-        ...prev,
-        progress: [
-          `GitHub evidence synced from ${githubRepo}`,
-          ...(prev.progress || []),
-        ],
-      }));
-      setEntries((prev) => [
         {
-          id: `gh-${Date.now()}`,
-          worker_id: "GitHub Bot",
-          type: "github_commit",
-          content: `Synced latest merged PRs and commit evidence from https://github.com/${githubRepo}`,
-          source: "github",
-        },
-        ...prev,
-      ]);
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(
+          `GitHub sync failed (${res.status}): ${body || res.statusText}`
+        );
+      }
+
+      const data = await res.json();
+
+      // Reload everything from Firestore after the backend has reconciled it.
+      await loadProjectData();
+
+      setSyncToast(
+        `GitHub sync complete. ${data.evidence_count ?? 0} evidence item(s) processed.`
+      );
+    } catch (err) {
+      console.error("GitHub sync failed:", err);
+      setSyncToast(
+        err instanceof Error ? err.message : "GitHub sync failed"
+      );
+    } finally {
       setSyncing(false);
       setTimeout(() => setSyncToast(null), 5000);
     }
   }
 
-  // Conflict Resolution Handler
+  // Conflict resolution is persisted by FastAPI into Firestore.
+  // Do not mutate the UI optimistically with fake/local data; reload after success.
   async function handleResolveConflict(conflictId: string) {
     if (!resolutionText.trim()) return;
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      await fetch(
+      const apiUrl =
+        process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
+      const res = await fetch(
         `${apiUrl}/teams/${teamId}/projects/${projectId}/conflicts/${conflictId}/resolve`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            resolution: resolutionText,
-            resolved_by: "Harsha",
+            resolution: resolutionText.trim(),
+            resolved_by: "web-dashboard",
           }),
         }
       );
-    } catch (e) {
-      console.warn("Conflict resolved in local state.");
+
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(
+          `Conflict resolution failed (${res.status}): ${body || res.statusText}`
+        );
+      }
+
+      setResolvingId(null);
+      setResolutionText("");
+
+      // Pull the authoritative state back from Firestore.
+      await loadProjectData();
+    } catch (err) {
+      console.error("Failed to resolve conflict:", err);
+      setSyncToast(
+        err instanceof Error ? err.message : "Failed to resolve conflict"
+      );
+      setTimeout(() => setSyncToast(null), 5000);
     }
-
-    // Update conflict status locally
-    setConflicts((prev) =>
-      prev.map((c) =>
-        c.conflict_id === conflictId || c.id === conflictId
-          ? { ...c, status: "resolved", resolution: resolutionText }
-          : c
-      )
-    );
-
-    // Add resolved decision to key decisions
-    setCurrentState((prev) => ({
-      ...prev,
-      decisions: [...(prev.decisions || []), `[Resolved Conflict] ${resolutionText}`],
-    }));
-
-    setResolvingId(null);
-    setResolutionText("");
   }
 
   const unresolvedConflictsCount = conflicts.filter(
@@ -456,7 +288,7 @@ export default function ProjectDetailsShell({
 
   const exportPacket = `=== CONTEXTSWITCH PORTABLE WORKSPACE PACKET ===
 Project: ${projectName} (${teamId}/${projectId})
-Repository: https://github.com/${githubRepo}
+Repository: ${githubRepo ? `https://github.com/${githubRepo}` : "Not connected"}
 Goal: ${currentState.goal || "Not specified"}
 
 [BEST NEXT ACTIONS]
@@ -489,6 +321,53 @@ ${
     navigator.clipboard.writeText(exportPacket);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0f1117] text-[#e1e7ef]">
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="text-center">
+            <RefreshCw className="mx-auto h-7 w-7 animate-spin text-[#38bdf8]" />
+            <p className="mt-3 text-sm text-[#94a3b8]">
+              Loading project context from Firestore...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-[#0f1117] text-[#e1e7ef]">
+        <div className="flex min-h-screen items-center justify-center px-6">
+          <div className="w-full max-w-lg rounded-xl border border-[#ef4444]/30 bg-[#161a24] p-7 text-center">
+            <XCircle className="mx-auto h-8 w-8 text-[#ef4444]" />
+            <h2 className="mt-4 text-lg font-semibold text-white">
+              Unable to load project
+            </h2>
+            <p className="mt-2 break-words text-sm text-[#94a3b8]">
+              {error}
+            </p>
+            <div className="mt-5 flex justify-center gap-3">
+              <button
+                onClick={() => void loadProjectData()}
+                className="rounded-lg bg-[#2563eb] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1d4ed8]"
+              >
+                Retry
+              </button>
+              <Link
+                href="/dashboard"
+                className="rounded-lg border border-[#2a3040] px-4 py-2 text-xs text-[#94a3b8] hover:bg-[#222734]"
+              >
+                Back to Dashboard
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

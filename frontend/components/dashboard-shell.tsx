@@ -16,20 +16,32 @@ import {
   MessageSquareText,
   MoreVertical,
   Plus,
+  RefreshCw,
   Search,
   Settings,
-  Sparkles,
   UserPlus,
   Users,
   X,
+  XCircle,
 } from "lucide-react";
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
+
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+
 import CreateProjectModal from "@/components/create-project-modal";
+import CreateTeamModal from "@/components/create-team-modal";
 import AddMemberModal from "@/components/add-member-modal";
+
+/* =========================================================
+   TYPES
+========================================================= */
 
 type User = {
   name?: string | null;
@@ -41,195 +53,898 @@ type DashboardShellProps = {
   user: User;
 };
 
-type Project = {
-  id: string;
+type ProjectState = {
+  goal?: string;
+  completed?: string[];
+  progress?: string[];
+  failed?: string[];
+  failures?: string[];
+  decisions?: string[];
+  blockers?: string[];
+  next_actions?: string[];
+};
+
+type DashboardMember = {
+  id?: string;
+  team_id?: string;
+  project_id?: string;
+
+  worker_id: string;
   name: string;
-  description: string;
-  team: string;
-  members: string[];
-  updated: string;
-  conflicts: number;
+
+  email?: string;
+  role?: string;
+  tool?: string;
+  primary_agent?: string;
+
+  joined_at?: string;
+};
+
+type DashboardProject = {
+  id?: string;
+
+  project_id: string;
+  team_id: string;
+
+  name: string;
+
+  github_owner?: string | null;
+  github_repo?: string | null;
+
+  current_state?: ProjectState;
+
+  members?: DashboardMember[];
+
+  blocker_count?: number;
+  conflict_count?: number;
+
+  created_at?: string;
+  updated_at?: string;
+};
+
+type ActivityEntry = {
+  id?: string;
+  entry_id?: string;
+
+  worker_id: string;
+
+  type?: string;
+  entry_type?: string;
+
+  content: string;
+
+  source?: string;
+  timestamp?: string;
+
+  project_id?: string;
+  project_name?: string;
+  team_id?: string;
+};
+
+type Conflict = {
+  id?: string;
+  conflict_id?: string;
+
+  topic: string;
+
+  side_a: {
+    worker_id: string;
+    position: string;
+  };
+
+  side_b: {
+    worker_id: string;
+    position: string;
+  };
+
+  status: string;
+
+  resolution?: string | null;
+
+  project_id?: string;
+  project_name?: string;
+  team_id?: string;
+};
+
+type DashboardStats = {
+  projects: number;
+  members: number;
+  unresolved_conflicts: number;
   blockers: number;
 };
 
-type Member = {
-  initials: string;
-  name: string;
-  tool: string;
+type DashboardResponse = {
+  team_id?: string;
+  team_name?: string;
+
+  projects?: DashboardProject[];
+  members?: DashboardMember[];
+  recent_entries?: ActivityEntry[];
+  conflicts?: Conflict[];
+
+  stats?: DashboardStats;
 };
 
-const initialProjects: Project[] = [
-  {
-    id: "contextswitch",
-    name: "ContextSwitch",
-    description:
-      "Shared memory layer for teams working across AI coding agents.",
-    team: "Team Alpha",
-    members: ["HB", "JK", "DS", "JG"],
-    updated: "8 min ago",
-    conflicts: 1,
-    blockers: 1,
-  },
-  {
-    id: "medical-ai",
-    name: "Medical AI",
-    description:
-      "Retinal vessel segmentation experiments and clinical evaluation.",
-    team: "Research Team",
-    members: ["HB", "DS", "JK"],
-    updated: "2 hr ago",
-    conflicts: 0,
-    blockers: 0,
-  },
-  {
-    id: "memory-llm",
-    name: "Memory LLM",
-    description:
-      "Long-context memory architecture and retrieval compression experiments.",
-    team: "Final Year Project",
-    members: ["HB", "JK", "JG", "DS"],
-    updated: "Yesterday",
-    conflicts: 0,
-    blockers: 2,
-  },
-];
+/* =========================================================
+   CONFIG
+========================================================= */
 
-const initialActivities = [
-  {
-    id: 1,
-    user: "Jeevan",
-    initials: "JK",
-    action: "recorded a decision",
-    content: "Use Pinecone because retrieval quality is better for long docs",
-    source: "Claude",
-    time: "8 min ago",
-    type: "decision",
-  },
-  {
-    id: 2,
-    user: "Hariharan",
-    initials: "HB",
-    action: "recorded a decision",
-    content: "Use ChromaDB to lower operational cost and keep setup local",
-    source: "Cursor",
-    time: "12 min ago",
-    type: "decision",
-  },
-  {
-    id: 3,
-    user: "Dhanya",
-    initials: "DS",
-    action: "completed",
-    content: "Authentication flow & token verification implementation",
-    source: "Gemini",
-    time: "1 hr ago",
-    type: "completed",
-  },
-  {
-    id: 4,
-    user: "Jagan",
-    initials: "JG",
-    action: "reported a blocker",
-    content: "Reranking latency is currently above 450ms SLA target",
-    source: "Antigravity",
-    time: "3 hr ago",
-    type: "blocker",
-  },
-];
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://127.0.0.1:8000";
 
-const initialMembers: Member[] = [
-  { initials: "HB", name: "Hariharan", tool: "Cursor" },
-  { initials: "JK", name: "Jeevan", tool: "Claude" },
-  { initials: "DS", name: "Dhanya", tool: "Gemini" },
-  { initials: "JG", name: "Jagan", tool: "Antigravity" },
-];
+/* =========================================================
+   HELPERS
+========================================================= */
 
-export default function DashboardShell({ user }: DashboardShellProps) {
-  const [dark, setDark] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [searchValue, setSearchValue] = useState("");
+function getInitials(name?: string) {
+  if (!name) return "?";
 
-  // Navigation State
-  const [activeTab, setActiveTab] = useState<
-    "home" | "projects" | "teams" | "activity" | "conflicts"
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length >= 2) {
+    return (
+      parts[0][0] +
+      parts[parts.length - 1][0]
+    ).toUpperCase();
+  }
+
+  return name
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function formatTime(value?: string) {
+  if (!value) return "";
+
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return "";
+  }
+
+  const diff =
+    Date.now() -
+    date.getTime();
+
+  const minutes =
+    Math.floor(
+      diff / 60000
+    );
+
+  if (minutes < 1) {
+    return "Just now";
+  }
+
+  if (minutes < 60) {
+    return `${minutes} min ago`;
+  }
+
+  const hours =
+    Math.floor(
+      minutes / 60
+    );
+
+  if (hours < 24) {
+    return `${hours} hr ago`;
+  }
+
+  const days =
+    Math.floor(
+      hours / 24
+    );
+
+  if (days === 1) {
+    return "Yesterday";
+  }
+
+  return `${days} days ago`;
+}
+
+function getActivityAction(
+  entry: ActivityEntry
+) {
+  const type =
+    entry.entry_type ||
+    entry.type ||
+    "update";
+
+  switch (type) {
+    case "decision":
+      return "recorded a decision";
+
+    case "completed":
+      return "completed";
+
+    case "blocker":
+      return "reported a blocker";
+
+    case "failure":
+    case "failed":
+      return "recorded a failed attempt";
+
+    case "github_commit":
+    case "github_sync":
+      return "synced GitHub evidence";
+
+    case "conflict_resolution":
+      return "resolved a conflict";
+
+    default:
+      return "added an update";
+  }
+}
+
+/* =========================================================
+   COMPONENT
+========================================================= */
+
+export default function DashboardShell({
+  user,
+}: DashboardShellProps) {
+  const [dark, setDark] =
+    useState(false);
+
+  const [
+    sidebarOpen,
+    setSidebarOpen,
+  ] = useState(false);
+
+  const [
+    profileOpen,
+    setProfileOpen,
+  ] = useState(false);
+
+  const [
+    searchValue,
+    setSearchValue,
+  ] = useState("");
+
+  const [
+    activeTab,
+    setActiveTab,
+  ] = useState<
+    | "home"
+    | "projects"
+    | "teams"
+    | "activity"
+    | "conflicts"
   >("home");
 
-  // Modals
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [addMemberModalOpen, setAddMemberModalOpen] = useState(false);
+  const [
+    createProjectOpen,
+    setCreateProjectOpen,
+  ] = useState(false);
 
-  // Dynamic Data
-  const [projectList, setProjectList] = useState<Project[]>(initialProjects);
-  const [activityList, setActivityList] = useState(initialActivities);
-  const [memberList, setMemberList] = useState<Member[]>(initialMembers);
+  const [
+    createTeamOpen,
+    setCreateTeamOpen,
+  ] = useState(false);
+
+  const [
+    addMemberOpen,
+    setAddMemberOpen,
+  ] = useState(false);
+
+  const [
+    projects,
+    setProjects,
+  ] = useState<
+    DashboardProject[]
+  >([]);
+
+  const [
+    members,
+    setMembers,
+  ] = useState<
+    DashboardMember[]
+  >([]);
+
+  const [
+    activities,
+    setActivities,
+  ] = useState<
+    ActivityEntry[]
+  >([]);
+
+  const [
+    conflicts,
+    setConflicts,
+  ] = useState<
+    Conflict[]
+  >([]);
+
+  const [
+    teamId,
+    setTeamId,
+  ] = useState("");
+
+  const [
+    teamName,
+    setTeamName,
+  ] = useState(
+    "Your workspace"
+  );
+
+  const [
+    hasTeam,
+    setHasTeam,
+  ] = useState(false);
+
+  const [
+    stats,
+    setStats,
+  ] = useState<DashboardStats>({
+    projects: 0,
+    members: 0,
+    unresolved_conflicts: 0,
+    blockers: 0,
+  });
+
+  const [
+    dashboardLoading,
+    setDashboardLoading,
+  ] = useState(true);
+
+  const [
+    dashboardError,
+    setDashboardError,
+  ] = useState<
+    string | null
+  >(null);
+
+  const userEmail =
+    user.email
+      ?.trim()
+      .toLowerCase() || "";
+
+  /* =======================================================
+     CLEAR DATA
+  ======================================================= */
+
+  const clearDashboardData =
+    useCallback(() => {
+      setProjects([]);
+      setMembers([]);
+      setActivities([]);
+      setConflicts([]);
+
+      setStats({
+        projects: 0,
+        members: 0,
+        unresolved_conflicts: 0,
+        blockers: 0,
+      });
+    }, []);
+
+  /* =======================================================
+     LOAD DASHBOARD
+  ======================================================= */
+
+  const loadDashboard =
+    useCallback(
+      async () => {
+        if (!userEmail) {
+          setDashboardLoading(
+            false
+          );
+
+          await signOut({
+            callbackUrl:
+              "/login",
+          });
+
+          return;
+        }
+
+        setDashboardLoading(
+          true
+        );
+
+        setDashboardError(
+          null
+        );
+
+        try {
+          const response =
+            await fetch(
+              `${API_URL}/me/dashboard`,
+              {
+                method:
+                  "GET",
+
+                cache:
+                  "no-store",
+
+                credentials:
+                  "include",
+
+                headers: {
+                  Accept:
+                    "application/json",
+
+                  "X-User-Email":
+                    userEmail,
+                },
+              }
+            );
+
+          if (
+            response.status ===
+            401
+          ) {
+            await signOut({
+              callbackUrl:
+                "/login",
+            });
+
+            return;
+          }
+
+          /*
+           * Logged in, but user has no team.
+           */
+          if (
+            response.status ===
+            404
+          ) {
+            setTeamId("");
+
+            setTeamName(
+              "Your workspace"
+            );
+
+            clearDashboardData();
+
+            setHasTeam(false);
+
+            return;
+          }
+
+          if (!response.ok) {
+            const body =
+              await response.text();
+
+            throw new Error(
+              `Dashboard API failed (${response.status}): ${
+                body ||
+                response.statusText
+              }`
+            );
+          }
+
+          const data:
+            DashboardResponse =
+            await response.json();
+
+          const returnedTeamId =
+            typeof data.team_id ===
+            "string"
+              ? data.team_id
+              : "";
+
+          if (
+            !returnedTeamId
+          ) {
+            throw new Error(
+              "Dashboard returned no team_id."
+            );
+          }
+
+          setHasTeam(true);
+
+          setTeamId(
+            returnedTeamId
+          );
+
+          setTeamName(
+            data.team_name ||
+              returnedTeamId
+          );
+
+          const loadedProjects =
+            Array.isArray(
+              data.projects
+            )
+              ? data.projects.filter(
+                  (project) =>
+                    project.team_id ===
+                    returnedTeamId
+                )
+              : [];
+
+          const loadedMembers =
+            Array.isArray(
+              data.members
+            )
+              ? data.members.filter(
+                  (member) =>
+                    !member.team_id ||
+                    member.team_id ===
+                      returnedTeamId
+                )
+              : [];
+
+          const loadedActivities =
+            Array.isArray(
+              data.recent_entries
+            )
+              ? data.recent_entries.filter(
+                  (entry) =>
+                    !entry.team_id ||
+                    entry.team_id ===
+                      returnedTeamId
+                )
+              : [];
+
+          const loadedConflicts =
+            Array.isArray(
+              data.conflicts
+            )
+              ? data.conflicts.filter(
+                  (conflict) =>
+                    !conflict.team_id ||
+                    conflict.team_id ===
+                      returnedTeamId
+                )
+              : [];
+
+          setProjects(
+            loadedProjects
+          );
+
+          setMembers(
+            loadedMembers
+          );
+
+          setActivities(
+            loadedActivities
+          );
+
+          setConflicts(
+            loadedConflicts
+          );
+
+          setStats({
+            projects:
+              data.stats
+                ?.projects ??
+              loadedProjects
+                .length,
+
+            members:
+              data.stats
+                ?.members ??
+              loadedMembers
+                .length,
+
+            unresolved_conflicts:
+              data.stats
+                ?.unresolved_conflicts ??
+              loadedConflicts.filter(
+                (conflict) =>
+                  conflict.status ===
+                  "unresolved"
+              ).length,
+
+            blockers:
+              data.stats
+                ?.blockers ??
+              loadedProjects.reduce(
+                (
+                  total,
+                  project
+                ) =>
+                  total +
+                  (
+                    project
+                      .blocker_count ??
+                    project
+                      .current_state
+                      ?.blockers
+                      ?.length ??
+                    0
+                  ),
+                0
+              ),
+          });
+        } catch (error) {
+          console.error(
+            "Dashboard load failed:",
+            error
+          );
+
+          setHasTeam(false);
+
+          setTeamId("");
+
+          setTeamName(
+            "Your workspace"
+          );
+
+          clearDashboardData();
+
+          setDashboardError(
+            error instanceof Error
+              ? error.message
+              : "Failed to load dashboard"
+          );
+        } finally {
+          setDashboardLoading(
+            false
+          );
+        }
+      },
+      [
+        userEmail,
+        clearDashboardData,
+      ]
+    );
 
   useEffect(() => {
-    const stored = localStorage.getItem("contextswitch-theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const shouldUseDark = stored === "dark" || (!stored && prefersDark);
-    setDark(shouldUseDark);
-    document.documentElement.classList.toggle("dark", shouldUseDark);
+    void loadDashboard();
+  }, [loadDashboard]);
+
+  /* =======================================================
+     THEME
+  ======================================================= */
+
+  useEffect(() => {
+    const stored =
+      localStorage.getItem(
+        "contextswitch-theme"
+      );
+
+    const prefersDark =
+      window.matchMedia(
+        "(prefers-color-scheme: dark)"
+      ).matches;
+
+    const shouldUseDark =
+      stored === "dark" ||
+      (!stored &&
+        prefersDark);
+
+    setDark(
+      shouldUseDark
+    );
+
+    document.documentElement.classList.toggle(
+      "dark",
+      shouldUseDark
+    );
   }, []);
 
   function toggleTheme() {
-    const next = !dark;
+    const next =
+      !dark;
+
     setDark(next);
-    document.documentElement.classList.toggle("dark", next);
-    localStorage.setItem("contextswitch-theme", next ? "dark" : "light");
+
+    document.documentElement.classList.toggle(
+      "dark",
+      next
+    );
+
+    localStorage.setItem(
+      "contextswitch-theme",
+      next
+        ? "dark"
+        : "light"
+    );
   }
 
-  function handleAddMember(name: string, tool: string) {
-    const initials = name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-    setMemberList((prev) => [...prev, { initials, name, tool }]);
-    setActivityList((prev) => [
-      {
-        id: Date.now(),
-        user: name,
-        initials,
-        action: "joined the team",
-        content: `Joined Team Alpha using ${tool}`,
-        source: tool,
-        time: "Just now",
-        type: "decision",
-      },
-      ...prev,
-    ]);
+  /* =======================================================
+     CREATE ACTION
+
+     ONE centralized function so no screen can accidentally
+     open project creation before a team exists.
+  ======================================================= */
+
+  function handleCreateAction() {
+    if (!hasTeam) {
+      setCreateTeamOpen(
+        true
+      );
+
+      return;
+    }
+
+    setCreateProjectOpen(
+      true
+    );
   }
 
-  // Filtered lists based on Search bar
-  const filteredProjects = projectList.filter(
-    (p) =>
-      p.name.toLowerCase().includes(searchValue.toLowerCase()) ||
-      p.description.toLowerCase().includes(searchValue.toLowerCase()) ||
-      p.team.toLowerCase().includes(searchValue.toLowerCase())
-  );
+  /* =======================================================
+     SEARCH
+  ======================================================= */
 
-  const filteredActivities = activityList.filter(
-    (a) =>
-      a.user.toLowerCase().includes(searchValue.toLowerCase()) ||
-      a.content.toLowerCase().includes(searchValue.toLowerCase()) ||
-      a.source.toLowerCase().includes(searchValue.toLowerCase())
-  );
+  const query =
+    searchValue
+      .trim()
+      .toLowerCase();
+
+  const filteredProjects =
+    projects.filter(
+      (project) => {
+        if (!query) {
+          return true;
+        }
+
+        const goal =
+          project
+            .current_state
+            ?.goal || "";
+
+        return (
+          project.name
+            ?.toLowerCase()
+            .includes(
+              query
+            ) ||
+          project.project_id
+            ?.toLowerCase()
+            .includes(
+              query
+            ) ||
+          goal
+            .toLowerCase()
+            .includes(
+              query
+            )
+        );
+      }
+    );
+
+  const filteredActivities =
+    activities.filter(
+      (activity) => {
+        if (!query) {
+          return true;
+        }
+
+        return (
+          activity.worker_id
+            ?.toLowerCase()
+            .includes(
+              query
+            ) ||
+          activity.content
+            ?.toLowerCase()
+            .includes(
+              query
+            ) ||
+          activity.source
+            ?.toLowerCase()
+            .includes(
+              query
+            ) ||
+          activity.project_name
+            ?.toLowerCase()
+            .includes(
+              query
+            )
+        );
+      }
+    );
+
+  const unresolvedConflicts =
+    conflicts.filter(
+      (conflict) =>
+        conflict.status ===
+        "unresolved"
+    );
+
+  const firstConflict =
+    unresolvedConflicts[0];
+
+  /* =======================================================
+     LOADING
+  ======================================================= */
+
+  if (
+    dashboardLoading
+  ) {
+    return (
+      <div className="cs-app">
+        <div className="flex min-h-screen w-full items-center justify-center">
+          <div className="text-center">
+            <RefreshCw
+              size={30}
+              className="mx-auto animate-spin"
+            />
+
+            <p className="mt-3 text-sm">
+              Loading workspace...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* =======================================================
+     ERROR
+  ======================================================= */
+
+  if (dashboardError) {
+    return (
+      <div className="cs-app">
+        <div className="flex min-h-screen w-full items-center justify-center px-6">
+          <div className="max-w-lg text-center">
+            <XCircle
+              size={34}
+              className="mx-auto"
+            />
+
+            <h2 className="mt-4 text-xl font-semibold">
+              Unable to load
+              workspace
+            </h2>
+
+            <p className="mt-2 text-sm opacity-70">
+              {dashboardError}
+            </p>
+
+            <button
+              onClick={() =>
+                void loadDashboard()
+              }
+              className="cs-primary-button mt-5"
+            >
+              <RefreshCw
+                size={16}
+              />
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="cs-app">
-      {/* SIDEBAR */}
-      <aside className={`cs-sidebar ${sidebarOpen ? "cs-sidebar-open" : ""}`}>
+      {/* ===================================================
+          SIDEBAR
+      =================================================== */}
+
+      <aside
+        className={`cs-sidebar ${
+          sidebarOpen
+            ? "cs-sidebar-open"
+            : ""
+        }`}
+      >
         <div className="cs-sidebar-header">
-          <Link href="/dashboard" className="cs-brand">
-            <div className="cs-logo">C</div>
-            <span>ContextSwitch</span>
+          <Link
+            href="/dashboard"
+            className="cs-brand"
+          >
+            <div className="cs-logo">
+              C
+            </div>
+
+            <span>
+              ContextSwitch
+            </span>
           </Link>
 
           <button
             className="cs-mobile-close"
-            onClick={() => setSidebarOpen(false)}
+            onClick={() =>
+              setSidebarOpen(
+                false
+              )
+            }
           >
             <X size={20} />
           </button>
@@ -237,82 +952,158 @@ export default function DashboardShell({ user }: DashboardShellProps) {
 
         <nav className="cs-nav">
           <SidebarItem
-            icon={<Home size={19} />}
+            icon={
+              <Home
+                size={19}
+              />
+            }
             label="Home"
-            active={activeTab === "home"}
-            onClick={() => setActiveTab("home")}
+            active={
+              activeTab ===
+              "home"
+            }
+            onClick={() =>
+              setActiveTab(
+                "home"
+              )
+            }
           />
 
           <SidebarItem
-            icon={<FolderKanban size={19} />}
+            icon={
+              <FolderKanban
+                size={19}
+              />
+            }
             label="Projects"
-            active={activeTab === "projects"}
-            onClick={() => setActiveTab("projects")}
+            active={
+              activeTab ===
+              "projects"
+            }
+            onClick={() =>
+              setActiveTab(
+                "projects"
+              )
+            }
           />
 
           <SidebarItem
-            icon={<Users size={19} />}
+            icon={
+              <Users
+                size={19}
+              />
+            }
             label="Teams"
-            active={activeTab === "teams"}
-            onClick={() => setActiveTab("teams")}
+            active={
+              activeTab ===
+              "teams"
+            }
+            onClick={() =>
+              setActiveTab(
+                "teams"
+              )
+            }
           />
 
           <SidebarItem
-            icon={<Activity size={19} />}
+            icon={
+              <Activity
+                size={19}
+              />
+            }
             label="Activity"
-            active={activeTab === "activity"}
-            onClick={() => setActiveTab("activity")}
+            active={
+              activeTab ===
+              "activity"
+            }
+            onClick={() =>
+              setActiveTab(
+                "activity"
+              )
+            }
           />
 
           <SidebarItem
-            icon={<AlertTriangle size={19} />}
+            icon={
+              <AlertTriangle
+                size={19}
+              />
+            }
             label="Conflicts"
-            badge="1"
-            active={activeTab === "conflicts"}
-            onClick={() => setActiveTab("conflicts")}
+            badge={
+              unresolvedConflicts.length
+                ? unresolvedConflicts.length.toString()
+                : undefined
+            }
+            active={
+              activeTab ===
+              "conflicts"
+            }
+            onClick={() =>
+              setActiveTab(
+                "conflicts"
+              )
+            }
           />
         </nav>
 
         <div className="cs-sidebar-section">
-          <div className="cs-sidebar-label">Your teams</div>
+          <div className="cs-sidebar-label">
+            Your team
+          </div>
 
-          <TeamItem
-            name="Team Alpha"
-            color="blue"
-            onClick={() => setActiveTab("teams")}
-          />
-          <TeamItem
-            name="Final Year Project"
-            color="green"
-            onClick={() => setActiveTab("teams")}
-          />
-          <TeamItem
-            name="Research Team"
-            color="orange"
-            onClick={() => setActiveTab("teams")}
-          />
+          {hasTeam ? (
+            <TeamItem
+              name={
+                teamName
+              }
+              color="blue"
+              onClick={() =>
+                setActiveTab(
+                  "teams"
+                )
+              }
+            />
+          ) : (
+            <button
+              onClick={() =>
+                setCreateTeamOpen(
+                  true
+                )
+              }
+              className="mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-[#334155] px-3 py-2 text-left text-sm text-[#94a3b8] hover:bg-[#1e2430] hover:text-white"
+            >
+              <Plus
+                size={16}
+              />
 
-          <button
-            className="cs-new-team"
-            onClick={() => setCreateModalOpen(true)}
-          >
-            <Plus size={17} />
-            Create team
-          </button>
+              Create team
+            </button>
+          )}
         </div>
 
         <div className="cs-sidebar-bottom">
           <SidebarItem
-            icon={<CircleHelp size={18} />}
-            label="Help"
-            onClick={() =>
-              alert("ContextSwitch AI Team Shared Memory. Need help? Contact team.")
+            icon={
+              <CircleHelp
+                size={18}
+              />
             }
+            label="Help"
           />
+
           <SidebarItem
-            icon={<Settings size={18} />}
+            icon={
+              <Settings
+                size={18}
+              />
+            }
             label="Settings"
-            onClick={() => setProfileOpen(true)}
+            onClick={() =>
+              setProfileOpen(
+                true
+              )
+            }
           />
         </div>
       </aside>
@@ -320,80 +1111,161 @@ export default function DashboardShell({ user }: DashboardShellProps) {
       {sidebarOpen && (
         <button
           className="cs-mobile-overlay"
-          onClick={() => setSidebarOpen(false)}
+          onClick={() =>
+            setSidebarOpen(
+              false
+            )
+          }
         />
       )}
 
-      {/* MAIN CONTENT AREA */}
+      {/* ===================================================
+          MAIN
+      =================================================== */}
+
       <div className="cs-main">
-        {/* TOP BAR */}
         <header className="cs-topbar">
           <div className="cs-topbar-left">
             <button
               className="cs-menu-button"
-              onClick={() => setSidebarOpen(true)}
+              onClick={() =>
+                setSidebarOpen(
+                  true
+                )
+              }
             >
-              <Menu size={21} />
+              <Menu
+                size={21}
+              />
             </button>
 
             <div className="cs-search">
-              <Search size={19} />
+              <Search
+                size={19}
+              />
+
               <input
-                value={searchValue}
-                onChange={(e) => setSearchValue(e.target.value)}
+                value={
+                  searchValue
+                }
+                onChange={(
+                  event
+                ) =>
+                  setSearchValue(
+                    event
+                      .target
+                      .value
+                  )
+                }
                 placeholder="Search project memory..."
               />
+
               <kbd>⌘ K</kbd>
             </div>
           </div>
 
           <div className="cs-top-actions">
-            <button onClick={toggleTheme} className="cs-theme-toggle">
-              <span className={dark ? "cs-[#eab308]" : ""}>
-                {dark ? "☀" : "☾"}
-              </span>
+            <button
+              onClick={
+                toggleTheme
+              }
+              className="cs-theme-toggle"
+            >
+              {dark
+                ? "☀"
+                : "☾"}
+            </button>
+
+            <button
+              className="cs-icon-button"
+              onClick={() =>
+                void loadDashboard()
+              }
+              title="Refresh"
+            >
+              <RefreshCw
+                size={19}
+              />
             </button>
 
             <button className="cs-icon-button">
-              <Bell size={20} />
-              <span className="cs-notification-dot" />
+              <Bell
+                size={20}
+              />
+
+              {unresolvedConflicts.length >
+                0 && (
+                <span className="cs-notification-dot" />
+              )}
             </button>
 
             <div className="cs-profile-wrapper">
               <button
                 className="cs-profile"
-                onClick={() => setProfileOpen(!profileOpen)}
+                onClick={() =>
+                  setProfileOpen(
+                    !profileOpen
+                  )
+                }
               >
                 {user.image ? (
                   <Image
-                    src={user.image}
-                    alt={user.name ?? "User"}
+                    src={
+                      user.image
+                    }
+                    alt={
+                      user.name ||
+                      "User"
+                    }
                     width={34}
                     height={34}
                     className="cs-profile-image"
                   />
                 ) : (
                   <div className="cs-profile-fallback">
-                    {user.name?.charAt(0).toUpperCase() ?? "U"}
+                    {getInitials(
+                      user.name ||
+                        user.email ||
+                        "User"
+                    )}
                   </div>
                 )}
-                <ChevronDown size={15} />
+
+                <ChevronDown
+                  size={15}
+                />
               </button>
 
               {profileOpen && (
                 <div className="cs-profile-menu">
                   <div className="cs-profile-info">
                     <div>
-                      <div className="cs-profile-name">{user.name}</div>
-                      <div className="cs-profile-email">{user.email}</div>
+                      <div className="cs-profile-name">
+                        {user.name ||
+                          "User"}
+                      </div>
+
+                      <div className="cs-profile-email">
+                        {user.email}
+                      </div>
                     </div>
                   </div>
+
                   <div className="cs-menu-divider" />
+
                   <button
                     className="cs-profile-menu-item"
-                    onClick={() => signOut({ callbackUrl: "/login" })}
+                    onClick={() =>
+                      signOut({
+                        callbackUrl:
+                          "/login",
+                      })
+                    }
                   >
-                    <LogOut size={17} />
+                    <LogOut
+                      size={17}
+                    />
+
                     Sign out
                   </button>
                 </div>
@@ -402,174 +1274,446 @@ export default function DashboardShell({ user }: DashboardShellProps) {
           </div>
         </header>
 
-        {/* DYNAMIC SUBVIEWS */}
         <main className="cs-content">
-          {/* VIEW: HOME */}
-          {activeTab === "home" && (
+          {/* =================================================
+              HOME
+          ================================================= */}
+
+          {activeTab ===
+            "home" && (
             <>
               <section className="cs-welcome">
                 <div>
-                  <p className="cs-eyebrow">Workspace</p>
+                  <p className="cs-eyebrow">
+                    Workspace
+                  </p>
+
                   <h1>
-                    Good evening
-                    {user.name ? `, ${user.name.split(" ")[0]}` : ""}
+                    Welcome
+                    {user.name
+                      ? `, ${
+                          user.name.split(
+                            " "
+                          )[0]
+                        }`
+                      : ""}
                   </h1>
+
                   <p>
-                    Here&apos;s what your teams and AI agents have been working
-                    on.
+                    {hasTeam
+                      ? `Shared context for ${teamName}.`
+                      : "Create your team workspace to start using ContextSwitch."}
                   </p>
                 </div>
 
                 <button
                   className="cs-primary-button"
-                  onClick={() => setCreateModalOpen(true)}
+                  onClick={
+                    handleCreateAction
+                  }
                 >
-                  <Plus size={18} />
-                  New project
+                  <Plus
+                    size={18}
+                  />
+
+                  {hasTeam
+                    ? "New project"
+                    : "Create team"}
                 </button>
               </section>
 
+              {/* NO TEAM */}
+
+              {!hasTeam && (
+                <section className="mb-6 rounded-2xl border border-dashed border-[#334155] bg-[#161a24] px-8 py-12">
+                  <div className="mx-auto max-w-lg text-center">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#2563eb]/10 text-[#38bdf8]">
+                      <Users
+                        size={28}
+                      />
+                    </div>
+
+                    <h2 className="mt-5 text-xl font-semibold text-white">
+                      Create your first
+                      team
+                    </h2>
+
+                    <p className="mt-2 text-sm leading-6 text-[#94a3b8]">
+                      Projects belong
+                      inside teams.
+                      Create your team
+                      workspace first,
+                      then you can add
+                      projects and invite
+                      collaborators.
+                    </p>
+
+                    <button
+                      className="cs-primary-button mx-auto mt-6"
+                      onClick={() =>
+                        setCreateTeamOpen(
+                          true
+                        )
+                      }
+                    >
+                      <Plus
+                        size={18}
+                      />
+
+                      Create team
+                    </button>
+                  </div>
+                </section>
+              )}
+
               <section className="cs-summary-strip">
                 <SummaryItem
-                  icon={<FolderKanban size={20} />}
-                  number={filteredProjects.length.toString()}
+                  icon={
+                    <FolderKanban
+                      size={20}
+                    />
+                  }
+                  number={
+                    stats.projects.toString()
+                  }
                   label="Active projects"
-                  onClick={() => setActiveTab("projects")}
+                  onClick={() =>
+                    setActiveTab(
+                      "projects"
+                    )
+                  }
                 />
+
                 <SummaryItem
-                  icon={<Users size={20} />}
-                  number={memberList.length.toString()}
+                  icon={
+                    <Users
+                      size={20}
+                    />
+                  }
+                  number={
+                    stats.members.toString()
+                  }
                   label="Collaborators"
-                  onClick={() => setActiveTab("teams")}
+                  onClick={() =>
+                    setActiveTab(
+                      "teams"
+                    )
+                  }
                 />
+
                 <SummaryItem
-                  icon={<AlertTriangle size={20} />}
-                  number="1"
+                  icon={
+                    <AlertTriangle
+                      size={20}
+                    />
+                  }
+                  number={
+                    stats.unresolved_conflicts.toString()
+                  }
                   label="Needs attention"
-                  warning
-                  onClick={() => setActiveTab("conflicts")}
+                  warning={
+                    stats.unresolved_conflicts >
+                    0
+                  }
+                  onClick={() =>
+                    setActiveTab(
+                      "conflicts"
+                    )
+                  }
                 />
+
                 <SummaryItem
-                  icon={<CheckCircle2 size={20} />}
-                  number="12"
-                  label="Updates this week"
-                  onClick={() => setActiveTab("activity")}
+                  icon={
+                    <CheckCircle2
+                      size={20}
+                    />
+                  }
+                  number={
+                    activities.length.toString()
+                  }
+                  label="Recent updates"
+                  onClick={() =>
+                    setActiveTab(
+                      "activity"
+                    )
+                  }
                 />
               </section>
 
               <section className="cs-section">
                 <div className="cs-section-heading">
                   <div>
-                    <h2>Your projects</h2>
-                    <p>Shared context across your teams.</p>
+                    <h2>
+                      Your projects
+                    </h2>
+
+                    <p>
+                      Shared project
+                      context.
+                    </p>
                   </div>
+
                   <button
                     className="cs-text-button"
-                    onClick={() => setActiveTab("projects")}
+                    onClick={() =>
+                      setActiveTab(
+                        "projects"
+                      )
+                    }
                   >
-                    View all <ArrowRight size={16} />
+                    View all
+                    <ArrowRight
+                      size={16}
+                    />
                   </button>
                 </div>
 
-                <div className="cs-project-grid">
-                  {filteredProjects.map((project) => (
-                    <ProjectCard key={project.id} project={project} />
-                  ))}
-                </div>
+                {filteredProjects.length ===
+                0 ? (
+                  <div className="rounded-xl border border-dashed border-[#2a3040] bg-[#161a24] p-8 text-center">
+                    <FolderKanban
+                      size={28}
+                      className="mx-auto opacity-50"
+                    />
+
+                    <h3 className="mt-3 font-semibold">
+                      {hasTeam
+                        ? "No projects yet"
+                        : "Create a team first"}
+                    </h3>
+
+                    <p className="mt-2 text-sm opacity-60">
+                      {hasTeam
+                        ? "Create your first project inside this team."
+                        : "Every ContextSwitch project belongs to a team workspace."}
+                    </p>
+
+                    <button
+                      className="cs-primary-button mx-auto mt-5"
+                      onClick={
+                        handleCreateAction
+                      }
+                    >
+                      <Plus
+                        size={17}
+                      />
+
+                      {hasTeam
+                        ? "Create project"
+                        : "Create team"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="cs-project-grid">
+                    {filteredProjects.map(
+                      (
+                        project
+                      ) => (
+                        <ProjectCard
+                          key={`${project.team_id}-${project.project_id}`}
+                          project={
+                            project
+                          }
+                        />
+                      )
+                    )}
+                  </div>
+                )}
               </section>
 
               <section className="cs-dashboard-grid">
-                {/* Recent Activity */}
                 <div className="cs-panel cs-activity-panel">
                   <div className="cs-panel-header">
                     <div>
-                      <h2>Recent activity</h2>
-                      <p>Latest updates across your projects</p>
+                      <h2>
+                        Recent activity
+                      </h2>
+
+                      <p>
+                        Latest workspace
+                        updates
+                      </p>
                     </div>
                   </div>
 
                   <div className="cs-activity-list">
-                    {filteredActivities.slice(0, 4).map((activity) => (
-                      <ActivityItem key={activity.id} {...activity} />
-                    ))}
+                    {filteredActivities.length ===
+                    0 ? (
+                      <EmptyState text="No activity logged yet." />
+                    ) : (
+                      filteredActivities
+                        .slice(
+                          0,
+                          4
+                        )
+                        .map(
+                          (
+                            activity
+                          ) => (
+                            <ActivityItem
+                              key={
+                                activity.id ||
+                                activity.entry_id
+                              }
+                              activity={
+                                activity
+                              }
+                            />
+                          )
+                        )
+                    )}
                   </div>
-
-                  <button
-                    className="cs-panel-footer-button"
-                    onClick={() => setActiveTab("activity")}
-                  >
-                    View all activity
-                  </button>
                 </div>
 
-                {/* Right Column: Conflict & Team */}
                 <div className="cs-right-column">
                   <div className="cs-panel">
                     <div className="cs-conflict-heading">
                       <div className="cs-warning-icon">
-                        <AlertTriangle size={19} />
+                        <AlertTriangle
+                          size={19}
+                        />
                       </div>
+
                       <div>
-                        <span>Needs attention</span>
-                        <h3>Decision conflict</h3>
+                        <span>
+                          Needs attention
+                        </span>
+
+                        <h3>
+                          Decision
+                          conflicts
+                        </h3>
                       </div>
                     </div>
 
-                    <div className="cs-conflict-body">
-                      <div className="cs-conflict-project">ContextSwitch</div>
-                      <h4>Vector Database Selection</h4>
-                      <p>
-                        Hariharan and Jeevan recorded incompatible decisions.
-                      </p>
+                    {firstConflict ? (
+                      <div className="cs-conflict-body">
+                        <h4>
+                          {
+                            firstConflict.topic
+                          }
+                        </h4>
 
-                      <div className="cs-conflict-sides">
-                        <div>
-                          <Avatar initials="HB" />
-                          <span>ChromaDB</span>
-                        </div>
-                        <span className="cs-vs">vs</span>
-                        <div>
-                          <Avatar initials="JK" />
-                          <span>Pinecone</span>
-                        </div>
+                        <p>
+                          {
+                            firstConflict
+                              .side_a
+                              .worker_id
+                          }{" "}
+                          and{" "}
+                          {
+                            firstConflict
+                              .side_b
+                              .worker_id
+                          }{" "}
+                          recorded
+                          conflicting
+                          decisions.
+                        </p>
+
+                        {firstConflict.project_id && (
+                          <Link
+                            href={`/projects/${
+                              firstConflict.team_id ||
+                              teamId
+                            }/${
+                              firstConflict.project_id
+                            }`}
+                            className="cs-resolve-button block text-center"
+                          >
+                            Review
+                            conflict →
+                          </Link>
+                        )}
                       </div>
+                    ) : (
+                      <div className="p-5 text-sm">
+                        <CheckCircle2
+                          size={20}
+                        />
 
-                      <Link
-                        href="/projects/team-alpha/contextswitch"
-                        className="cs-resolve-button block text-center"
-                      >
-                        Review conflict →
-                      </Link>
-                    </div>
+                        <p className="mt-2">
+                          No unresolved
+                          conflicts.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Team Members */}
                   <div className="cs-panel">
                     <div className="cs-panel-header compact">
                       <div>
-                        <h2>Team Alpha</h2>
-                        <p>{memberList.length} members</p>
+                        <h2>
+                          {hasTeam
+                            ? teamName
+                            : "Your team"}
+                        </h2>
+
+                        <p>
+                          {hasTeam
+                            ? `${members.length} member${
+                                members.length ===
+                                1
+                                  ? ""
+                                  : "s"
+                              }`
+                            : "No team yet"}
+                        </p>
                       </div>
 
-                      <button
-                        className="cs-icon-button subtle"
-                        onClick={() => setAddMemberModalOpen(true)}
-                        title="Add Team Member"
-                      >
-                        <Plus size={18} />
-                      </button>
+                      {hasTeam && (
+                        <button
+                          className="cs-icon-button subtle"
+                          onClick={() =>
+                            setAddMemberOpen(
+                              true
+                            )
+                          }
+                        >
+                          <Plus
+                            size={18}
+                          />
+                        </button>
+                      )}
                     </div>
 
                     <div className="cs-team-list">
-                      {memberList.map((m, idx) => (
-                        <MemberRow
-                          key={idx}
-                          initials={m.initials}
-                          name={m.name}
-                          tool={m.tool}
-                          onClick={() => setActiveTab("teams")}
+                      {members.length ===
+                      0 ? (
+                        <EmptyState
+                          text={
+                            hasTeam
+                              ? "No members found."
+                              : "Create a team first."
+                          }
                         />
-                      ))}
+                      ) : (
+                        members
+                          .slice(
+                            0,
+                            5
+                          )
+                          .map(
+                            (
+                              member
+                            ) => (
+                              <MemberRow
+                                key={
+                                  member.id ||
+                                  member.worker_id
+                                }
+                                member={
+                                  member
+                                }
+                                onClick={() =>
+                                  setActiveTab(
+                                    "teams"
+                                  )
+                                }
+                              />
+                            )
+                          )
+                      )}
                     </div>
                   </div>
                 </div>
@@ -577,260 +1721,555 @@ export default function DashboardShell({ user }: DashboardShellProps) {
             </>
           )}
 
-          {/* VIEW: PROJECTS */}
-          {activeTab === "projects" && (
+          {/* =================================================
+              PROJECTS
+          ================================================= */}
+
+          {activeTab ===
+            "projects" && (
             <section className="cs-section">
               <div className="cs-section-heading">
                 <div>
-                  <h1 className="text-2xl font-bold text-white">
-                    All Active Projects ({filteredProjects.length})
+                  <h1 className="text-2xl font-bold">
+                    Projects (
+                    {
+                      filteredProjects.length
+                    }
+                    )
                   </h1>
-                  <p className="text-sm text-[#94a3b8]">
-                    Shared project memory & AI decision tracking across teams.
+
+                  <p>
+                    Projects from your
+                    workspace.
                   </p>
                 </div>
+
                 <button
                   className="cs-primary-button"
-                  onClick={() => setCreateModalOpen(true)}
+                  onClick={
+                    handleCreateAction
+                  }
                 >
-                  <Plus size={18} />
-                  New project
+                  <Plus
+                    size={18}
+                  />
+
+                  {hasTeam
+                    ? "New project"
+                    : "Create team"}
                 </button>
               </div>
 
-              <div className="cs-project-grid mt-6">
-                {filteredProjects.map((project) => (
-                  <ProjectCard key={project.id} project={project} />
-                ))}
-              </div>
+              {filteredProjects.length ===
+              0 ? (
+                <div className="mt-6 rounded-xl border border-dashed border-[#2a3040] bg-[#161a24] p-10 text-center">
+                  <FolderKanban
+                    size={30}
+                    className="mx-auto opacity-50"
+                  />
+
+                  <h3 className="mt-3 font-semibold">
+                    {hasTeam
+                      ? "No projects yet"
+                      : "You need a team first"}
+                  </h3>
+
+                  <button
+                    className="cs-primary-button mx-auto mt-5"
+                    onClick={
+                      handleCreateAction
+                    }
+                  >
+                    <Plus
+                      size={17}
+                    />
+
+                    {hasTeam
+                      ? "Create first project"
+                      : "Create team"}
+                  </button>
+                </div>
+              ) : (
+                <div className="cs-project-grid mt-6">
+                  {filteredProjects.map(
+                    (
+                      project
+                    ) => (
+                      <ProjectCard
+                        key={`${project.team_id}-${project.project_id}`}
+                        project={
+                          project
+                        }
+                      />
+                    )
+                  )}
+                </div>
+              )}
             </section>
           )}
 
-          {/* VIEW: TEAMS */}
-          {activeTab === "teams" && (
+          {/* =================================================
+              TEAMS
+          ================================================= */}
+
+          {activeTab ===
+            "teams" && (
             <section className="space-y-6">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <div>
-                  <h1 className="text-2xl font-bold text-white">
-                    Team Workspaces & Teammates
+                  <h1 className="text-2xl font-bold">
+                    Teams
                   </h1>
-                  <p className="text-sm text-[#94a3b8]">
-                    Manage team members, roles, and connected AI coding tools.
+
+                  <p className="mt-1 text-sm opacity-70">
+                    Manage your shared
+                    workspace and
+                    collaborators.
                   </p>
                 </div>
-                <button
-                  className="cs-primary-button"
-                  onClick={() => setAddMemberModalOpen(true)}
-                >
-                  <UserPlus size={18} />
-                  Add Team Member
-                </button>
+
+                {!hasTeam && (
+                  <button
+                    className="cs-primary-button"
+                    onClick={() =>
+                      setCreateTeamOpen(
+                        true
+                      )
+                    }
+                  >
+                    <Plus
+                      size={18}
+                    />
+
+                    Create team
+                  </button>
+                )}
+
+                {hasTeam && (
+                  <button
+                    className="cs-primary-button"
+                    onClick={() =>
+                      setAddMemberOpen(
+                        true
+                      )
+                    }
+                  >
+                    <UserPlus
+                      size={18}
+                    />
+
+                    Add member
+                  </button>
+                )}
               </div>
 
-              <div className="grid gap-6 md:grid-cols-2">
+              {!hasTeam ? (
+                <div className="rounded-2xl border border-dashed border-[#334155] bg-[#161a24] px-6 py-14 text-center">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#2563eb]/10 text-[#38bdf8]">
+                    <Users
+                      size={28}
+                    />
+                  </div>
+
+                  <h2 className="mt-5 text-xl font-semibold text-white">
+                    You don&apos;t
+                    have a team yet
+                  </h2>
+
+                  <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#94a3b8]">
+                    Create your first
+                    ContextSwitch team
+                    before creating
+                    projects or inviting
+                    collaborators.
+                  </p>
+
+                  <button
+                    className="cs-primary-button mx-auto mt-6"
+                    onClick={() =>
+                      setCreateTeamOpen(
+                        true
+                      )
+                    }
+                  >
+                    <Plus
+                      size={18}
+                    />
+
+                    Create your first
+                    team
+                  </button>
+                </div>
+              ) : (
                 <div className="rounded-xl border border-[#222734] bg-[#161a24] p-6">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-white">
-                      Team Alpha (Active Workspace)
-                    </h2>
-                    <span className="rounded bg-[#2563eb]/20 px-2.5 py-1 text-xs font-semibold text-[#38bdf8]">
-                      {memberList.length} Members
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-lg font-semibold text-white">
+                        {teamName}
+                      </h2>
+
+                      <p className="mt-1 font-mono text-xs text-[#64748b]">
+                        {teamId}
+                      </p>
+                    </div>
+
+                    <span className="rounded-md bg-[#2563eb]/10 px-2.5 py-1 text-xs font-semibold text-[#38bdf8]">
+                      Active workspace
                     </span>
                   </div>
 
-                  <div className="mt-4 space-y-3">
-                    {memberList.map((m, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between rounded-lg border border-[#262c3a] bg-[#11141c] p-3 text-sm"
+                  <div className="mt-6 border-t border-[#222734] pt-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-white">
+                          Members
+                        </div>
+
+                        <div className="mt-1 text-xs text-[#64748b]">
+                          {
+                            members.length
+                          }{" "}
+                          member
+                          {members.length ===
+                          1
+                            ? ""
+                            : "s"}
+                        </div>
+                      </div>
+
+                      <button
+                        className="cs-icon-button subtle"
+                        onClick={() =>
+                          setAddMemberOpen(
+                            true
+                          )
+                        }
+                        title="Add member"
                       >
-                        <div className="flex items-center gap-3">
-                          <Avatar initials={m.initials} />
-                          <div>
-                            <div className="font-medium text-white">
-                              {m.name}
+                        <UserPlus
+                          size={17}
+                        />
+                      </button>
+                    </div>
+
+                    {members.length >
+                    0 ? (
+                      <div className="mt-4 space-y-2">
+                        {members.map(
+                          (
+                            member
+                          ) => (
+                            <div
+                              key={
+                                member.id ||
+                                member.worker_id
+                              }
+                              className="flex items-center justify-between rounded-lg border border-[#262c3a] bg-[#11141c] p-3"
+                            >
+                              <div className="flex items-center gap-3">
+                                <Avatar
+                                  initials={getInitials(
+                                    member.name ||
+                                      member.worker_id
+                                  )}
+                                />
+
+                                <div>
+                                  <div className="text-sm font-medium text-white">
+                                    {member.name ||
+                                      member.worker_id}
+                                  </div>
+
+                                  <div className="text-xs text-[#64748b]">
+                                    {member.email ||
+                                      member.role ||
+                                      "Member"}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {member.role && (
+                                <span className="rounded bg-[#222734] px-2 py-1 text-xs text-[#94a3b8]">
+                                  {
+                                    member.role
+                                  }
+                                </span>
+                              )}
                             </div>
-                            <div className="text-xs text-[#64748b]">
-                              Primary Agent: {m.tool}
-                            </div>
+                          )
+                        )}
+                      </div>
+                    ) : (
+                      <EmptyState text="No members found." />
+                    )}
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <button
+                      className="cs-primary-button"
+                      onClick={() =>
+                        setCreateProjectOpen(
+                          true
+                        )
+                      }
+                    >
+                      <Plus
+                        size={17}
+                      />
+
+                      Create project
+                    </button>
+
+                    <button
+                      className="rounded-lg border border-[#2a3040] px-4 py-2 text-xs font-semibold text-[#cbd5e1] hover:bg-[#222734]"
+                      onClick={() =>
+                        setAddMemberOpen(
+                          true
+                        )
+                      }
+                    >
+                      <UserPlus
+                        size={16}
+                      />
+
+                      Add member
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* =================================================
+              ACTIVITY
+          ================================================= */}
+
+          {activeTab ===
+            "activity" && (
+            <section className="space-y-6">
+              <div>
+                <h1 className="text-2xl font-bold">
+                  Live Activity
+                  Stream
+                </h1>
+
+                <p>
+                  Project updates
+                  stored in shared
+                  memory.
+                </p>
+              </div>
+
+              {filteredActivities.length ===
+              0 ? (
+                <EmptyState text="No activity found." />
+              ) : (
+                <div className="space-y-3">
+                  {filteredActivities.map(
+                    (
+                      activity
+                    ) => (
+                      <ActivityItem
+                        key={
+                          activity.id ||
+                          activity.entry_id
+                        }
+                        activity={
+                          activity
+                        }
+                      />
+                    )
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* =================================================
+              CONFLICTS
+          ================================================= */}
+
+          {activeTab ===
+            "conflicts" && (
+            <section className="space-y-6">
+              <div>
+                <h1 className="text-2xl font-bold">
+                  Team Decision
+                  Conflicts
+                </h1>
+
+                <p>
+                  Unresolved
+                  conflicting project
+                  decisions.
+                </p>
+              </div>
+
+              {unresolvedConflicts.length ===
+              0 ? (
+                <div className="rounded-xl border border-[#222734] bg-[#161a24] p-10 text-center">
+                  <CheckCircle2
+                    size={32}
+                    className="mx-auto"
+                  />
+
+                  <h3 className="mt-3 font-semibold">
+                    No Open
+                    Conflicts
+                  </h3>
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {unresolvedConflicts.map(
+                    (
+                      conflict
+                    ) => (
+                      <div
+                        key={
+                          conflict.id ||
+                          conflict.conflict_id
+                        }
+                        className="rounded-xl border border-[#ef4444]/30 bg-[#161a24] p-6"
+                      >
+                        <div className="flex items-center gap-2 font-bold">
+                          <AlertTriangle
+                            size={18}
+                          />
+
+                          {
+                            conflict.topic
+                          }
+                        </div>
+
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <div className="rounded-lg border border-[#262c3a] bg-[#11141c] p-4">
+                            <strong>
+                              {
+                                conflict
+                                  .side_a
+                                  .worker_id
+                              }
+                            </strong>
+
+                            <p className="mt-2 text-sm">
+                              {
+                                conflict
+                                  .side_a
+                                  .position
+                              }
+                            </p>
+                          </div>
+
+                          <div className="rounded-lg border border-[#262c3a] bg-[#11141c] p-4">
+                            <strong>
+                              {
+                                conflict
+                                  .side_b
+                                  .worker_id
+                              }
+                            </strong>
+
+                            <p className="mt-2 text-sm">
+                              {
+                                conflict
+                                  .side_b
+                                  .position
+                              }
+                            </p>
                           </div>
                         </div>
-                        <span className="rounded bg-[#1e293b] px-2 py-0.5 text-xs text-[#94a3b8]">
-                          Member
-                        </span>
                       </div>
-                    ))}
-                  </div>
+                    )
+                  )}
                 </div>
-
-                <div className="space-y-6">
-                  <div className="rounded-xl border border-[#222734] bg-[#161a24] p-6">
-                    <h2 className="text-lg font-semibold text-white">
-                      Research Team
-                    </h2>
-                    <p className="mt-1 text-xs text-[#64748b]">
-                      Connected to Retinal vessel segmentation project
-                    </p>
-                    <div className="mt-4 flex gap-2">
-                      <Avatar initials="HB" />
-                      <Avatar initials="DS" />
-                      <Avatar initials="JK" />
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-[#222734] bg-[#161a24] p-6">
-                    <h2 className="text-lg font-semibold text-white">
-                      Final Year Project
-                    </h2>
-                    <p className="mt-1 text-xs text-[#64748b]">
-                      Connected to Long-context Memory LLM experiments
-                    </p>
-                    <div className="mt-4 flex gap-2">
-                      <Avatar initials="HB" />
-                      <Avatar initials="JK" />
-                      <Avatar initials="JG" />
-                      <Avatar initials="DS" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-          )}
-
-          {/* VIEW: ACTIVITY */}
-          {activeTab === "activity" && (
-            <section className="space-y-6">
-              <div>
-                <h1 className="text-2xl font-bold text-white">
-                  Live Activity Stream ({filteredActivities.length})
-                </h1>
-                <p className="text-sm text-[#94a3b8]">
-                  Real-time entries logged across Cursor, Claude, Antigravity, and Gemini.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                {filteredActivities.map((activity) => (
-                  <div
-                    key={activity.id}
-                    className="flex items-start gap-4 rounded-xl border border-[#222734] bg-[#161a24] p-5"
-                  >
-                    <Avatar initials={activity.initials} />
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm font-medium text-white">
-                          <strong className="text-[#38bdf8]">
-                            {activity.user}
-                          </strong>{" "}
-                          {activity.action}
-                        </div>
-                        <span className="text-xs text-[#64748b]">
-                          {activity.time}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm text-[#cbd5e1]">
-                        {activity.content}
-                      </p>
-                      <div className="mt-2 text-xs font-mono text-[#94a3b8]">
-                        Source: {activity.source}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* VIEW: CONFLICTS */}
-          {activeTab === "conflicts" && (
-            <section className="space-y-6">
-              <div>
-                <h1 className="text-2xl font-bold text-white">
-                  Team Decision Conflicts
-                </h1>
-                <p className="text-sm text-[#94a3b8]">
-                  Gemini reconciliation highlights incompatible decisions recorded across team members.
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-[#ef4444]/30 bg-[#161a24] p-6 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-base font-bold text-[#f87171]">
-                    <AlertTriangle className="h-5 w-5" />
-                    Vector Database Selection Conflict
-                  </div>
-                  <span className="rounded bg-[#ef4444]/10 px-2.5 py-1 text-xs font-semibold text-[#ef4444]">
-                    UNRESOLVED
-                  </span>
-                </div>
-
-                <p className="mt-2 text-xs text-[#94a3b8]">
-                  Project: ContextSwitch (Team Alpha)
-                </p>
-
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <div className="rounded-lg border border-[#262c3a] bg-[#11141c] p-4">
-                    <div className="text-xs font-semibold text-[#38bdf8]">
-                      Side A: Hariharan (Cursor)
-                    </div>
-                    <p className="mt-2 text-sm text-[#cbd5e1]">
-                      Use ChromaDB to lower operational cost and keep setup simple locally.
-                    </p>
-                  </div>
-
-                  <div className="rounded-lg border border-[#262c3a] bg-[#11141c] p-4">
-                    <div className="text-xs font-semibold text-[#eab308]">
-                      Side B: Jeevan (Claude)
-                    </div>
-                    <p className="mt-2 text-sm text-[#cbd5e1]">
-                      Use Pinecone because vector indexing quality is higher for long docs.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-6 flex justify-end">
-                  <Link
-                    href="/projects/team-alpha/contextswitch"
-                    className="flex items-center gap-2 rounded-lg bg-[#2563eb] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1d4ed8]"
-                  >
-                    Open Project & Resolve Conflict →
-                  </Link>
-                </div>
-              </div>
+              )}
             </section>
           )}
         </main>
       </div>
 
-      {/* MODALS */}
-      <CreateProjectModal
-        isOpen={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
+      {/* ===================================================
+          MODALS
+      =================================================== */}
+
+      <CreateTeamModal
+        isOpen={createTeamOpen}
+
+        user={{
+          name: user.name,
+          email: user.email,
+        }}
+
+        onClose={() =>
+          setCreateTeamOpen(false)
+        }
+
         onSuccess={() => {
-          setProjectList((prev) => [
-            {
-              id: "new-project",
-              name: "New Shared Project",
-              description: "Newly created agentic project workspace.",
-              team: "Team Alpha",
-              members: ["HB", "JK", "DS", "JG"],
-              updated: "Just now",
-              conflicts: 0,
-              blockers: 0,
-            },
-            ...prev,
-          ]);
+          setCreateTeamOpen(false);
+          void loadDashboard();
         }}
       />
 
-      <AddMemberModal
-        isOpen={addMemberModalOpen}
-        onClose={() => setAddMemberModalOpen(false)}
-        onAddMember={handleAddMember}
-      />
+      {hasTeam &&
+        teamId && (
+          <CreateProjectModal
+            isOpen={
+              createProjectOpen
+            }
+            teamId={
+              teamId
+            }
+            user={{
+              name:
+                user.name,
+
+              email:
+                user.email,
+            }}
+            onClose={() =>
+              setCreateProjectOpen(
+                false
+              )
+            }
+            onSuccess={() => {
+              setCreateProjectOpen(
+                false
+              );
+
+              /*
+               * CreateProjectModal handles navigation.
+               * Do not navigate again here.
+               */
+            }}
+          />
+        )}
+
+      {hasTeam && (
+        <AddMemberModal
+          isOpen={
+            addMemberOpen
+          }
+          onClose={() =>
+            setAddMemberOpen(
+              false
+            )
+          }
+          onAddMember={() => {
+            setAddMemberOpen(
+              false
+            );
+
+            void loadDashboard();
+          }}
+        />
+      )}
     </div>
   );
 }
+
+/* =========================================================
+   SMALL COMPONENTS
+========================================================= */
 
 function SidebarItem({
   icon,
@@ -847,12 +2286,26 @@ function SidebarItem({
 }) {
   return (
     <button
-      onClick={onClick}
-      className={`cs-nav-item ${active ? "active" : ""}`}
+      onClick={
+        onClick
+      }
+      className={`cs-nav-item ${
+        active
+          ? "active"
+          : ""
+      }`}
     >
       {icon}
-      <span>{label}</span>
-      {badge && <span className="cs-nav-badge">{badge}</span>}
+
+      <span>
+        {label}
+      </span>
+
+      {badge && (
+        <span className="cs-nav-badge">
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
@@ -867,9 +2320,19 @@ function TeamItem({
   onClick?: () => void;
 }) {
   return (
-    <button className="cs-team-item" onClick={onClick}>
-      <span className={`cs-team-dot ${color}`} />
-      <span>{name}</span>
+    <button
+      className="cs-team-item"
+      onClick={
+        onClick
+      }
+    >
+      <span
+        className={`cs-team-dot ${color}`}
+      />
+
+      <span>
+        {name}
+      </span>
     </button>
   );
 }
@@ -888,59 +2351,156 @@ function SummaryItem({
   onClick?: () => void;
 }) {
   return (
-    <div className="cs-summary-item cursor-pointer" onClick={onClick}>
-      <div className={`cs-summary-icon ${warning ? "warning" : ""}`}>
+    <div
+      className="cs-summary-item cursor-pointer"
+      onClick={
+        onClick
+      }
+    >
+      <div
+        className={`cs-summary-icon ${
+          warning
+            ? "warning"
+            : ""
+        }`}
+      >
         {icon}
       </div>
+
       <div>
-        <strong>{number}</strong>
-        <span>{label}</span>
+        <strong>
+          {number}
+        </strong>
+
+        <span>
+          {label}
+        </span>
       </div>
     </div>
   );
 }
 
-function ProjectCard({ project }: { project: Project }) {
-  const teamSlug = project.team.toLowerCase().replace(/\s+/g, "-");
+function ProjectCard({
+  project,
+}: {
+  project: DashboardProject;
+}) {
+  const projectMembers =
+    project.members || [];
+
+  const description =
+    project.current_state
+      ?.goal ||
+    "No project goal has been recorded yet.";
+
   return (
     <Link
-      href={`/projects/${teamSlug}/${project.id}`}
+      href={`/projects/${project.team_id}/${project.project_id}`}
       className="cs-project-card"
     >
       <div className="cs-project-card-top">
         <div className="cs-project-icon">
-          <FolderKanban size={21} />
+          <FolderKanban
+            size={21}
+          />
         </div>
+
         <button
+          type="button"
           className="cs-icon-button subtle"
-          onClick={(event) => event.preventDefault()}
+          onClick={(
+            event
+          ) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
         >
-          <MoreVertical size={18} />
+          <MoreVertical
+            size={18}
+          />
         </button>
       </div>
 
-      <div className="cs-project-title">{project.name}</div>
-      <p className="cs-project-description">{project.description}</p>
-      <div className="cs-project-team">{project.team}</div>
+      <div className="cs-project-title">
+        {project.name}
+      </div>
+
+      <p className="cs-project-description">
+        {description}
+      </p>
+
+      <div className="cs-project-team">
+        {project.team_id}
+      </div>
 
       <div className="cs-project-footer">
         <div className="cs-avatar-stack">
-          {project.members.slice(0, 4).map((member) => (
-            <Avatar key={member} initials={member} small />
-          ))}
+          {projectMembers
+            .slice(
+              0,
+              4
+            )
+            .map(
+              (
+                member
+              ) => (
+                <Avatar
+                  key={
+                    member.id ||
+                    member.worker_id
+                  }
+                  initials={getInitials(
+                    member.name ||
+                      member.worker_id
+                  )}
+                  small
+                />
+              )
+            )}
         </div>
 
         <div className="cs-project-status">
-          {project.conflicts > 0 && (
+          {(project.conflict_count ||
+            0) > 0 && (
             <span className="warning">
-              <AlertTriangle size={14} />
-              {project.conflicts}
+              <AlertTriangle
+                size={14}
+              />
+
+              {
+                project.conflict_count
+              }
             </span>
           )}
-          <span>
-            <Clock3 size={14} />
-            {project.updated}
-          </span>
+
+          {(project.blocker_count ??
+            project
+              .current_state
+              ?.blockers
+              ?.length ??
+            0) > 0 && (
+            <span>
+              {project.blocker_count ??
+                project
+                  .current_state
+                  ?.blockers
+                  ?.length ??
+                0}{" "}
+              blockers
+            </span>
+          )}
+
+          {project.updated_at && (
+            <span>
+              <Clock3
+                size={14}
+              />
+
+              {formatTime(
+                project.updated_at
+              )}
+            </span>
+          )}
         </div>
       </div>
     </Link>
@@ -948,45 +2508,78 @@ function ProjectCard({ project }: { project: Project }) {
 }
 
 function ActivityItem({
-  user,
-  initials,
-  action,
-  content,
-  source,
-  time,
-  type,
+  activity,
 }: {
-  user: string;
-  initials: string;
-  action: string;
-  content: string;
-  source: string;
-  time: string;
-  type: string;
+  activity: ActivityEntry;
 }) {
+  const type =
+    activity.entry_type ||
+    activity.type ||
+    "update";
+
   return (
     <div className="cs-activity-item">
-      <Avatar initials={initials} />
+      <Avatar
+        initials={getInitials(
+          activity.worker_id
+        )}
+      />
+
       <div className="cs-activity-content">
         <div className="cs-activity-top">
           <div>
-            <strong>{user}</strong>
-            <span> {action}</span>
+            <strong>
+              {
+                activity.worker_id
+              }
+            </strong>
+
+            <span>
+              {" "}
+              {getActivityAction(
+                activity
+              )}
+            </span>
           </div>
-          <time>{time}</time>
+
+          <time>
+            {formatTime(
+              activity.timestamp
+            )}
+          </time>
         </div>
 
-        <div className="cs-activity-message">{content}</div>
+        <div className="cs-activity-message">
+          {
+            activity.content
+          }
+        </div>
 
         <div className="cs-activity-meta">
-          {type === "completed" ? (
-            <CheckCircle2 size={14} />
-          ) : type === "blocker" ? (
-            <AlertTriangle size={14} />
+          {type ===
+          "completed" ? (
+            <CheckCircle2
+              size={14}
+            />
+          ) : type ===
+            "blocker" ? (
+            <AlertTriangle
+              size={14}
+            />
           ) : (
-            <MessageSquareText size={14} />
+            <MessageSquareText
+              size={14}
+            />
           )}
-          <span>{source}</span>
+
+          <span>
+            {activity.source ||
+              "unknown"}
+
+            {activity.project_name
+              ? ` · ${activity.project_name}`
+              : ""}
+          </span>
         </div>
       </div>
     </div>
@@ -1001,29 +2594,68 @@ function Avatar({
   small?: boolean;
 }) {
   return (
-    <div className={`cs-avatar ${small ? "small" : ""}`}>{initials}</div>
+    <div
+      className={`cs-avatar ${
+        small
+          ? "small"
+          : ""
+      }`}
+    >
+      {initials}
+    </div>
   );
 }
 
 function MemberRow({
-  initials,
-  name,
-  tool,
+  member,
   onClick,
 }: {
-  initials: string;
-  name: string;
-  tool: string;
+  member: DashboardMember;
   onClick?: () => void;
 }) {
   return (
-    <button className="cs-member-row" onClick={onClick}>
-      <Avatar initials={initials} />
+    <button
+      className="cs-member-row"
+      onClick={
+        onClick
+      }
+    >
+      <Avatar
+        initials={getInitials(
+          member.name ||
+            member.worker_id
+        )}
+      />
+
       <div>
-        <strong>{name}</strong>
-        <span>{tool}</span>
+        <strong>
+          {member.name ||
+            member.worker_id}
+        </strong>
+
+        <span>
+          {member.primary_agent ||
+            member.tool ||
+            member.role ||
+            "Member"}
+        </span>
       </div>
-      <ArrowRight size={16} />
+
+      <ArrowRight
+        size={16}
+      />
     </button>
+  );
+}
+
+function EmptyState({
+  text,
+}: {
+  text: string;
+}) {
+  return (
+    <div className="rounded-lg border border-dashed border-[#2a3040] p-6 text-center text-sm opacity-60">
+      {text}
+    </div>
   );
 }
