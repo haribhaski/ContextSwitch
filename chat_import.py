@@ -80,7 +80,7 @@ ALLOWED_EXTRACT_TYPES = {
 
 MODEL = os.getenv(
     "GEMINI_MODEL",
-    "gemini-3-flash-preview",
+    "gemini-3.6-flash",
 )
 
 MAX_CHAT_CHARS = int(
@@ -241,142 +241,349 @@ def validate_gemini_share_url(url: str) -> str:
     return url
 
 
-# ============================================================
-# GEMINI PUBLIC PAGE FETCH
-# ============================================================
+async def fetch_gemini_share_text(url: str) -> tuple[str, str, str]:
+    from playwright.async_api import (
+        async_playwright,
+        TimeoutError as PlaywrightTimeoutError,
+    )
 
-async def fetch_gemini_share_text(
-    url: str,
-) -> tuple[str, str, str]:
-    """
-    Gemini share pages are rendered web apps.
-
-    Playwright is used so we can read the actual visible
-    conversation text after the page renders.
-
-    Returns:
-        final_url,
-        page_title,
-        visible_text
-    """
+    print(f"[Gemini Import] Opening: {url}")
 
     async with async_playwright() as p:
-
         browser = await p.chromium.launch(
             headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ],
         )
 
-        page = await browser.new_page(
+        context = await browser.new_context(
             viewport={
                 "width": 1440,
                 "height": 1200,
             },
-
             user_agent=(
-                "Mozilla/5.0 "
-                "(X11; Linux x86_64) "
-                "AppleWebKit/537.36 "
-                "(KHTML, like Gecko) "
-                "Chrome/124.0.0.0 "
-                "Safari/537.36"
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
             ),
         )
 
+        page = await context.new_page()
+
         try:
+            # -------------------------------------------------
+            # OPEN GEMINI SHARE PAGE
+            # -------------------------------------------------
 
             response = await page.goto(
                 url,
                 wait_until="domcontentloaded",
-                timeout=30000,
+                timeout=60000,
             )
 
-            if response is None:
-                raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        "Gemini share page did not "
-                        "return a response."
-                    ),
-                )
-
-            await page.wait_for_timeout(
-                1800
+            print(
+                "[Gemini Import] HTTP status:",
+                response.status if response else "unknown",
             )
 
             final_url = page.url
 
-            parsed = urlparse(
-                final_url
+            print(
+                "[Gemini Import] Final URL:",
+                final_url,
             )
 
-            if (
-                parsed.scheme != "https"
-                or parsed.hostname
-                not in {
-                    "gemini.google.com",
-                    "g.co",
-                }
-            ):
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "Gemini link redirected to "
-                        "an unsupported host."
-                    ),
+            # Gemini can keep network requests alive,
+            # so don't fail if networkidle times out.
+            try:
+                await page.wait_for_load_state(
+                    "networkidle",
+                    timeout=15000,
                 )
+            except PlaywrightTimeoutError:
+                pass
 
-            title = (
-                await page.title()
+            # Give client-side rendering a little extra time.
+            await page.wait_for_timeout(4000)
+
+            browser_title = (await page.title()).strip()
+
+            print(
+                "[Gemini Import] Page title:",
+                browser_title,
             )
 
-            body_text = (
-                await page
-                .locator("body")
-                .inner_text(
+            # -------------------------------------------------
+            # HANDLE COOKIE / CONSENT POPUPS
+            # -------------------------------------------------
+
+            possible_buttons = [
+                "Accept all",
+                "I agree",
+                "Accept",
+                "Continue",
+                "Got it",
+            ]
+
+            for button_text in possible_buttons:
+                try:
+                    button = page.get_by_role(
+                        "button",
+                        name=button_text,
+                    )
+
+                    if await button.count() > 0:
+                        first_button = button.first
+
+                        if await first_button.is_visible():
+                            print(
+                                f"[Gemini Import] Clicking consent button: "
+                                f"{button_text}"
+                            )
+
+                            await first_button.click()
+
+                            await page.wait_for_timeout(
+                                1200
+                            )
+
+                except Exception:
+                    pass
+
+            # -------------------------------------------------
+            # GET FULL RENDERED BODY TEXT
+            # -------------------------------------------------
+
+            body_text = ""
+
+            try:
+                body_text = await page.locator(
+                    "body"
+                ).inner_text(
                     timeout=10000
                 )
-            )
+            except Exception as exc:
+                print(
+                    "[Gemini Import] Failed to read body text:",
+                    exc,
+                )
 
-            body_text = re.sub(
-                r"\n{3,}",
-                "\n\n",
-                body_text,
+            body_text = (
+                body_text or ""
             ).strip()
 
-            if len(body_text) < 80:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "The Gemini share page opened, "
-                        "but no readable conversation "
-                        "was found. Make sure the "
-                        "public share link still exists "
-                        "and opens without signing in."
-                    ),
+            print(
+                "[Gemini Import] Body text length:",
+                len(body_text),
+            )
+
+            print(
+                "[Gemini Import] Body preview:"
+            )
+
+            print(
+                body_text[:2000]
+            )
+
+            # -------------------------------------------------
+            # FALLBACK SELECTOR EXTRACTION
+            # -------------------------------------------------
+
+            selectors = [
+                "main",
+                "[role='main']",
+                "article",
+                "[data-test-id]",
+                ".conversation",
+                ".response-container",
+                ".model-response-text",
+                ".query-text",
+            ]
+
+            extracted_parts = []
+
+            for selector in selectors:
+                try:
+                    elements = page.locator(
+                        selector
+                    )
+
+                    count = await elements.count()
+
+                    for index in range(
+                        min(count, 100)
+                    ):
+                        try:
+                            text = (
+                                await elements.nth(
+                                    index
+                                ).inner_text(
+                                    timeout=2000
+                                )
+                            ).strip()
+
+                            if (
+                                text
+                                and len(text) > 20
+                                and text not in extracted_parts
+                            ):
+                                extracted_parts.append(
+                                    text
+                                )
+
+                        except Exception:
+                            continue
+
+                except Exception:
+                    continue
+
+            selector_text = "\n\n".join(
+                extracted_parts
+            ).strip()
+
+            print(
+                "[Gemini Import] Selector extracted length:",
+                len(selector_text),
+            )
+
+            # -------------------------------------------------
+            # IMPORTANT:
+            # Prefer body_text.
+            #
+            # Gemini's selector tree can contain duplicate
+            # copies of the same conversation.
+            # -------------------------------------------------
+
+            if len(body_text) >= 200:
+                conversation_text = body_text
+
+            elif len(selector_text) >= 200:
+                conversation_text = selector_text
+
+            else:
+                conversation_text = ""
+
+            # -------------------------------------------------
+            # DETECT ACTUAL FAILURE PAGES
+            # -------------------------------------------------
+
+            lowered = conversation_text.lower()
+
+            failure_markers = [
+                "page not found",
+                "conversation not found",
+                "this shared conversation is unavailable",
+                "this conversation is unavailable",
+                "the requested conversation could not be found",
+            ]
+
+            if len(conversation_text) < 100:
+                print(
+                    "[Gemini Import] Conversation text is too short."
                 )
 
-            if (
-                len(body_text)
-                > MAX_CHAT_CHARS
-            ):
-                body_text = (
-                    body_text[
-                        :MAX_CHAT_CHARS
-                    ]
+                print(
+                    "[Gemini Import] Final rendered text:"
                 )
+
+                print(
+                    conversation_text[:3000]
+                )
+
+                raise ValueError(
+                    "The Gemini share page opened, but no readable "
+                    "conversation was found."
+                )
+
+            if any(
+                marker in lowered
+                for marker in failure_markers
+            ):
+                print(
+                    "[Gemini Import] Gemini returned an unavailable "
+                    "conversation page."
+                )
+
+                print(
+                    conversation_text[:3000]
+                )
+
+                raise ValueError(
+                    "This Gemini conversation is unavailable "
+                    "or has been removed."
+                )
+
+            # -------------------------------------------------
+            # CLEAN GEMINI PAGE CHROME
+            # -------------------------------------------------
+
+            lines = [
+                line.strip()
+                for line in conversation_text.splitlines()
+                if line.strip()
+            ]
+
+            skip_exact = {
+                "Gemini",
+                "About Gemini",
+                "Get Gemini App",
+                "Subscriptions",
+                "For Business",
+                "Sign in",
+                "Google Privacy Policy",
+                "Google Terms of Service",
+                "Your privacy & Gemini Apps",
+                "Opens in a new window",
+                (
+                    "Gemini may display inaccurate info, including "
+                    "about people, so double-check its responses."
+                ),
+            }
+
+            cleaned_lines = []
+
+            for line in lines:
+                if line in skip_exact:
+                    continue
+
+                cleaned_lines.append(
+                    line
+                )
+
+            conversation_text = "\n".join(
+                cleaned_lines
+            ).strip()
+
+            # -------------------------------------------------
+            # FINAL VALIDATION
+            # -------------------------------------------------
+
+            if len(conversation_text) < 100:
+                raise ValueError(
+                    "Gemini conversation was found, but there was "
+                    "not enough readable content to import."
+                )
+
+            print(
+                "[Gemini Import] Successfully extracted",
+                len(conversation_text),
+                "characters",
+            )
+
+            print(
+                "[Gemini Import] Cleaned preview:"
+            )
+
+            print(
+                conversation_text[:2000]
+            )
 
             return (
                 final_url,
-                title,
-                body_text,
+                browser_title,
+                conversation_text,
             )
 
         finally:
-
+            await context.close()
             await browser.close()
 
 
@@ -940,11 +1147,15 @@ async def analyze_chat_import(
         ),
 ):
 
-    url = (
-        validate_gemini_share_url(
+    try:
+        url = validate_gemini_share_url(
             payload.url
         )
-    )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
 
     invalid = [
         value
@@ -1014,15 +1225,34 @@ async def analyze_chat_import(
         or {}
     )
 
-    (
-        final_url,
-        browser_title,
-        conversation_text,
-    ) = (
-        await fetch_gemini_share_text(
+    try:
+        (
+            final_url,
+            browser_title,
+            conversation_text,
+        ) = await fetch_gemini_share_text(
             url
         )
-    )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(
+            "[Gemini Import] Failed to read Gemini share page:",
+            repr(exc),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Failed to read the Gemini share page. "
+                "Check that the public link still works and that "
+                "Playwright Chromium is installed."
+            ),
+        ) from exc
 
     content_hash = hashlib.sha256(
         conversation_text.encode(
@@ -1433,507 +1663,436 @@ async def approve_chat_import(
     project_id: str,
     import_id: str,
     payload: ApproveImportRequest,
-
-    x_user_email: str | None =
-        Header(
-            default=None,
-            alias="X-User-Email",
-        ),
+    x_user_email: str | None = Header(
+        default=None,
+        alias="X-User-Email",
+    ),
 ):
+    """
+    Approve selected Gemini-extracted context items.
 
-    p_ref = project_ref(
-        team_id,
-        project_id,
+    Saves every approved item as rich memory and as a normal
+    ContextSwitch entry, then runs ONE reconciliation for the
+    whole import instead of one reconciliation per item.
+    """
+
+    print(
+        f"[Gemini Import] Approving import={import_id} "
+        f"team={team_id} project={project_id}"
     )
 
+    p_ref = project_ref(team_id, project_id)
     i_ref = (
         p_ref
-        .collection(
-            "imports"
-        )
-        .document(
-            import_id
-        )
+        .collection("imports")
+        .document(import_id)
     )
 
-    i_doc = (
-        i_ref.get()
-    )
+    i_doc = i_ref.get()
 
     if not i_doc.exists:
         raise HTTPException(
             status_code=404,
-            detail=(
-                "Import not found."
-            ),
+            detail="Import not found.",
         )
 
-    imported = (
-        i_doc.to_dict()
-        or {}
-    )
+    imported = i_doc.to_dict() or {}
 
-    if (
-        imported.get(
-            "status"
-        )
-        == "approved"
-    ):
+    if imported.get("status") == "approved":
         raise HTTPException(
             status_code=409,
-            detail=(
-                "This import has already "
-                "been approved."
-            ),
+            detail="This import has already been approved.",
         )
 
-    items = (
-        imported.get(
-            "items"
+    items = imported.get("items") or []
+
+    if not items:
+        raise HTTPException(
+            status_code=400,
+            detail="This import contains no extracted items.",
         )
-        or []
-    )
 
     by_id = {
-        item["id"]:
-            item
-        for item
-        in items
+        item["id"]: item
+        for item in items
+        if item.get("id")
     }
 
     unknown = [
         item_id
-        for item_id
-        in payload.approved_item_ids
-        if item_id
-        not in by_id
+        for item_id in payload.approved_item_ids
+        if item_id not in by_id
     ]
 
     if unknown:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Unknown extracted "
-                f"item IDs: {unknown}"
-            ),
+            detail=f"Unknown extracted item IDs: {unknown}",
         )
 
     approved_items = [
-        by_id[
-            item_id
-        ]
-        for item_id
-        in payload.approved_item_ids
+        by_id[item_id]
+        for item_id in payload.approved_item_ids
     ]
 
+    if not approved_items:
+        raise HTTPException(
+            status_code=400,
+            detail="Approve at least one extracted item.",
+        )
+
     now = utc_now()
+    approved_by_email = (
+        (x_user_email or "").strip().lower() or None
+    )
 
-    processed_memory_ids = []
+    processed_memory_ids: list[str] = []
+    created_entry_ids: list[str] = []
+    reconciliation_parts: list[str] = []
 
     # --------------------------------------------------------
-    # Process each accepted context item
+    # 1. Save approved memory items + normal entries
     # --------------------------------------------------------
 
-    for item in approved_items:
+    try:
+        for item in approved_items:
+            memory_id = "mem_" + uuid.uuid4().hex[:16]
 
-        memory_id = (
-            "mem_"
-            + uuid.uuid4().hex[
-                :16
-            ]
-        )
+            memory_payload = {
+                **item,
+                "memory_id": memory_id,
+                "status": "active",
+                "approved_at": now,
+                "approved_by_email": approved_by_email,
+            }
 
-        memory_payload = {
-            **item,
+            (
+                p_ref
+                .collection("memory_items")
+                .document(memory_id)
+                .set(memory_payload)
+            )
 
-            "memory_id":
-                memory_id,
+            processed_memory_ids.append(memory_id)
 
-            "status":
-                "active",
+            item_type = item.get("type") or "idea"
 
-            "approved_at":
-                now,
-
-            "approved_by_email":
-                (
-                    x_user_email
-                    or ""
-                )
-                .strip()
-                .lower()
-                or None,
-        }
-
-        # 1. Save rich reasoning item.
-        p_ref.collection(
-            "memory_items"
-        ).document(
-            memory_id
-        ).set(
-            memory_payload
-        )
-
-        processed_memory_ids.append(
-            memory_id
-        )
-
-        # 2. Convert rich item into normal entry.
-        entry_type = (
-            ENTRY_TYPE_MAP.get(
-                item["type"],
+            entry_type = ENTRY_TYPE_MAP.get(
+                item_type,
                 "update",
             )
-        )
 
-        content = (
-            item_to_entry_content(
-                item
-            )
-        )
+            content = item_to_entry_content(item)
 
-        metadata = {
-            "import_id":
-                import_id,
-
-            "memory_item_id":
-                memory_id,
-
-            "original_type":
-                item["type"],
-
-            "source_url":
-                item.get(
-                    "source_url"
+            metadata = {
+                "import_id": import_id,
+                "memory_item_id": memory_id,
+                "original_type": item_type,
+                "source_url": (
+                    item.get("source_url")
+                    or imported.get("source_url")
                 ),
+                "confidence": item.get("confidence"),
+                "evidence": item.get("evidence"),
+                "title": item.get("title"),
+                "explicitness": item.get("explicitness"),
+                "severity": item.get("severity"),
+                "likelihood": item.get("likelihood"),
+                "impact": item.get("impact"),
+            }
 
-            "confidence":
-                item.get(
-                    "confidence"
+            entry_id = add_entry(
+                team_id=team_id,
+                project_id=project_id,
+                worker_id=(
+                    item.get("worker_id")
+                    or imported.get("worker_id")
+                    or "unknown"
                 ),
-
-            "evidence":
-                item.get(
-                    "evidence"
-                ),
-
-            "title":
-                item.get(
-                    "title"
-                ),
-
-            "explicitness":
-                item.get(
-                    "explicitness"
-                ),
-
-            "severity":
-                item.get(
-                    "severity"
-                ),
-
-            "likelihood":
-                item.get(
-                    "likelihood"
-                ),
-
-            "impact":
-                item.get(
-                    "impact"
-                ),
-        }
-
-        entry_id = add_entry(
-            team_id=
-                team_id,
-
-            project_id=
-                project_id,
-
-            worker_id=
-                item["worker_id"],
-
-            entry_type=
-                entry_type,
-
-            content=
-                content,
-
-            source=
-                "gemini-import",
-
-            metadata=
-                metadata,
-        )
-
-        # 3. Reload authoritative state.
-        project = get_project(
-            team_id=
-                team_id,
-
-            project_id=
-                project_id,
-        )
-
-        if not project:
-            raise HTTPException(
-                status_code=404,
-                detail=(
-                    "Project disappeared "
-                    "during import."
-                ),
+                entry_type=entry_type,
+                content=content,
+                source="gemini-import",
+                metadata=metadata,
             )
 
-        current_state = (
-            project.get(
-                "current_state"
+            created_entry_ids.append(entry_id)
+
+            title = item.get("title") or item_type
+
+            reconciliation_parts.append(
+                f"[{item_type}] {title}\n{content}"
             )
-            or {}
+
+        print(
+            "[Gemini Import] Saved",
+            len(processed_memory_ids),
+            "memory items and",
+            len(created_entry_ids),
+            "entries.",
         )
 
-        # 4. Read recent history.
-        recent_entries = (
-            get_entries(
-                team_id=
-                    team_id,
-
-                project_id=
-                    project_id,
-
-                limit=
-                    30,
-            )
+    except Exception as exc:
+        print(
+            "[Gemini Import] Error while saving items:",
+            repr(exc),
         )
 
-        recent_entries = [
-            entry
-            for entry
-            in recent_entries
-            if (
-                entry.get(
-                    "id"
-                )
-                != entry_id
-                and
-                entry.get(
-                    "entry_id"
-                )
-                != entry_id
-            )
-        ]
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Failed while saving approved Gemini "
+                "context items."
+            ),
+        ) from exc
 
-        # 5. Build SAME shape as normal ContextSwitch entry.
-        new_entry = {
-            "entry_id":
-                entry_id,
+    # --------------------------------------------------------
+    # 2. Load authoritative project state once
+    # --------------------------------------------------------
 
-            "worker_id":
-                item[
-                    "worker_id"
-                ],
+    project = get_project(
+        team_id=team_id,
+        project_id=project_id,
+    )
 
-            "type":
-                entry_type,
-
-            "content":
-                content,
-
-            "source":
-                "gemini-import",
-
-            "metadata":
-                metadata,
-        }
-
-        # 6. Use your EXISTING Gemini reconciliation.
-        result = (
-            await reconcile_team_entry(
-                current_state=
-                    current_state,
-
-                new_entry=
-                    new_entry,
-
-                recent_entries=
-                    recent_entries,
-            )
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail="Project disappeared during import.",
         )
+
+    current_state = project.get("current_state") or {}
+
+    # --------------------------------------------------------
+    # 3. Load recent history once
+    # --------------------------------------------------------
+
+    recent_entries = get_entries(
+        team_id=team_id,
+        project_id=project_id,
+        limit=30,
+    )
+
+    created_id_set = set(created_entry_ids)
+
+    recent_entries = [
+        entry
+        for entry in recent_entries
+        if (
+            entry.get("id") not in created_id_set
+            and entry.get("entry_id") not in created_id_set
+        )
+    ]
+
+    # --------------------------------------------------------
+    # 4. Reconcile ONCE for the whole imported conversation
+    # --------------------------------------------------------
+
+    worker_id = (
+        imported.get("worker_id")
+        or approved_items[0].get("worker_id")
+        or "unknown"
+    )
+
+    reconciliation_content = (
+        "The following project context was imported from one "
+        "Gemini conversation and approved by the user.\n\n"
+        + "\n\n---\n\n".join(reconciliation_parts)
+    )
+
+    batch_entry = {
+        "entry_id": f"gemini_import_{import_id}",
+        "worker_id": worker_id,
+        "type": "update",
+        "content": reconciliation_content,
+        "source": "gemini-import",
+        "metadata": {
+            "import_id": import_id,
+            "source_url": imported.get("source_url"),
+            "approved_item_count": len(approved_items),
+            "memory_item_ids": processed_memory_ids,
+            "batch_reconciliation": True,
+        },
+    }
+
+    updated_state = current_state
+    conflict = None
+    reconciliation_warning = None
+
+    try:
+        print(
+            "[Gemini Import] Running ONE reconciliation for",
+            len(approved_items),
+            "approved items...",
+        )
+
+        result = await reconcile_team_entry(
+            current_state=current_state,
+            new_entry=batch_entry,
+            recent_entries=recent_entries,
+        )
+
+        if not isinstance(result, dict):
+            raise ValueError(
+                "reconcile_team_entry() did not return a dictionary."
+            )
 
         updated_state = (
-            result[
-                "updated_state"
-            ]
+            result.get("updated_state")
+            or current_state
         )
 
-        conflict = (
-            result.get(
-                "conflict"
-            )
+        conflict = result.get("conflict")
+
+        print(
+            "[Gemini Import] Reconciliation completed."
         )
 
-        # 7. Save reconciled state.
+    except Exception as exc:
+        reconciliation_warning = str(exc)
+
+        print(
+            "[Gemini Import] Reconciliation failed:",
+            repr(exc),
+        )
+
+        # Keep the imported memory even when reconciliation fails.
+        updated_state = current_state
+        conflict = None
+
+    # --------------------------------------------------------
+    # 5. Save state once
+    # --------------------------------------------------------
+
+    try:
         update_project_state(
-            team_id=
-                team_id,
-
-            project_id=
-                project_id,
-
-            state=
-                updated_state,
+            team_id=team_id,
+            project_id=project_id,
+            state=updated_state,
+        )
+    except Exception as exc:
+        print(
+            "[Gemini Import] Project state update failed:",
+            repr(exc),
         )
 
-        # 8. Save conflict if Gemini found one.
-        if conflict:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Gemini context was saved, but project "
+                "state could not be updated."
+            ),
+        ) from exc
 
-            save_conflict(
-                team_id=
-                    team_id,
+    # --------------------------------------------------------
+    # 6. Save conflict if one was detected
+    # --------------------------------------------------------
 
-                project_id=
-                    project_id,
+    if conflict:
+        try:
+            topic = (
+                conflict.get("topic")
+                or "Imported Gemini context conflict"
+            )
+            side_a = conflict.get("side_a") or ""
+            side_b = conflict.get("side_b") or ""
 
-                topic=
-                    conflict[
-                        "topic"
-                    ],
+            if side_a and side_b:
+                save_conflict(
+                    team_id=team_id,
+                    project_id=project_id,
+                    topic=topic,
+                    side_a=side_a,
+                    side_b=side_b,
+                    status="unresolved",
+                )
 
-                side_a=
-                    conflict[
-                        "side_a"
-                    ],
-
-                side_b=
-                    conflict[
-                        "side_b"
-                    ],
-
-                status=
-                    "unresolved",
+        except Exception as exc:
+            print(
+                "[Gemini Import] Warning: "
+                "could not save conflict:",
+                repr(exc),
             )
 
-        # 9. Snapshot after each accepted item.
+    # --------------------------------------------------------
+    # 7. Save one snapshot
+    # --------------------------------------------------------
+
+    try:
         save_snapshot(
-            team_id=
-                team_id,
-
-            project_id=
-                project_id,
-
-            state=
-                updated_state,
-
-            snapshot_type=
-                "gemini_import",
+            team_id=team_id,
+            project_id=project_id,
+            state=updated_state,
+            snapshot_type="gemini_import",
+        )
+    except Exception as exc:
+        print(
+            "[Gemini Import] Warning: snapshot failed:",
+            repr(exc),
         )
 
     # --------------------------------------------------------
-    # Mark import approved
+    # 8. Mark import approved
     # --------------------------------------------------------
 
     i_ref.update({
-        "status":
-            "approved",
-
-        "approved_item_ids":
-            payload.approved_item_ids,
-
-        "approved_count":
-            len(
-                approved_items
-            ),
-
-        "memory_item_ids":
-            processed_memory_ids,
-
-        "approved_at":
-            now,
-
-        "approved_by_email":
-            (
-                x_user_email
-                or ""
-            )
-            .strip()
-            .lower()
-            or None,
+        "status": "approved",
+        "approved_item_ids": payload.approved_item_ids,
+        "approved_count": len(approved_items),
+        "memory_item_ids": processed_memory_ids,
+        "entry_ids": created_entry_ids,
+        "approved_at": now,
+        "approved_by_email": approved_by_email,
+        "reconciliation_warning": reconciliation_warning,
     })
 
     # --------------------------------------------------------
-    # Add one compact import activity record.
+    # 9. Add one compact activity entry
     # --------------------------------------------------------
 
-    activity_ref = (
-        p_ref
-        .collection(
-            "entries"
+    try:
+        activity_ref = (
+            p_ref
+            .collection("entries")
+            .document()
         )
-        .document()
+
+        activity_ref.set({
+            "id": activity_ref.id,
+            "entry_id": activity_ref.id,
+            "team_id": team_id,
+            "project_id": project_id,
+            "worker_id": worker_id,
+            "type": "chat_import",
+            "entry_type": "chat_import",
+            "content": (
+                "Imported Gemini conversation: "
+                f"{len(approved_items)} reasoning item(s) "
+                "accepted into shared memory."
+            ),
+            "source": "gemini",
+            "source_url": imported.get("source_url"),
+            "import_id": import_id,
+            "timestamp": datetime.now(timezone.utc),
+        })
+
+    except Exception as exc:
+        print(
+            "[Gemini Import] Warning: activity entry failed:",
+            repr(exc),
+        )
+
+    print(
+        "[Gemini Import] APPROVAL COMPLETE:",
+        import_id,
     )
 
-    activity_ref.set({
-        "id":
-            activity_ref.id,
-
-        "entry_id":
-            activity_ref.id,
-
-        "team_id":
-            team_id,
-
-        "project_id":
-            project_id,
-
-        "worker_id":
-            imported.get(
-                "worker_id"
-            ),
-
-        "type":
-            "chat_import",
-
-        "entry_type":
-            "chat_import",
-
-        "content":
-            (
-                "Imported Gemini conversation: "
-                f"{len(approved_items)} "
-                "reasoning item(s) accepted "
-                "into shared memory."
-            ),
-
-        "source":
-            "gemini",
-
-        "source_url":
-            imported.get(
-                "source_url"
-            ),
-
-        "import_id":
-            import_id,
-
-        "timestamp":
-            datetime.now(
-                timezone.utc
-            ),
-    })
-
     return {
-        "ok":
-            True,
-
-        "import_id":
-            import_id,
-
-        "approved_count":
-            len(
-                approved_items
-            ),
-
-        "memory_item_ids":
-            processed_memory_ids,
+        "ok": True,
+        "import_id": import_id,
+        "approved_count": len(approved_items),
+        "memory_item_ids": processed_memory_ids,
+        "entry_ids": created_entry_ids,
+        "reconciliation_warning": reconciliation_warning,
     }
 
 
