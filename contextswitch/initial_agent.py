@@ -6,7 +6,7 @@ load_dotenv()
 
 initial_context_agent = Agent(
     name="initial_context_agent",
-    model="gemini-3-flash-preview",
+    model="gemini-3.6-flash",
     description="Builds the initial project state from connected evidence.",
 
     instruction="""

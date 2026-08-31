@@ -5,7 +5,7 @@ load_dotenv()
 
 root_agent = Agent(
     name="contextswitch_agent",
-    model="gemini-3-flash-preview",
+    model="gemini-3.6-flash",
     description="Reconciles previous project state with new evidence.",
     instruction="""
 You are the ContextSwitch state reconciliation agent.

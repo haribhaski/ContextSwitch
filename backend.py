@@ -1,3 +1,25 @@
+import os
+import sys
+import asyncio
+import aiohttp
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Fix Windows asyncio subprocess event loop policy for Playwright
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+# Patch aiohttp for google-genai SDK compatibility
+if not hasattr(aiohttp, "ClientConnectorDNSError"):
+    setattr(aiohttp, "ClientConnectorDNSError", getattr(aiohttp, "ClientConnectorError", Exception))
+
+# Ensure both GEMINI_API_KEY and GOOGLE_API_KEY are set for google-genai / Google ADK
+if os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
+    os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
+if os.getenv("GOOGLE_API_KEY") and not os.getenv("GEMINI_API_KEY"):
+    os.environ["GEMINI_API_KEY"] = os.getenv("GOOGLE_API_KEY")
+
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -73,7 +95,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
     ],
+    allow_origin_regex=r"http://.*:(3000|3001)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
