@@ -18,7 +18,6 @@ import {
   Plus,
   Search,
   Settings,
-  Sparkles,
   UserPlus,
   Users,
   X,
@@ -145,32 +144,30 @@ const initialMembers: Member[] = [
 ];
 
 export default function DashboardShell({ user }: DashboardShellProps) {
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const stored = localStorage.getItem("contextswitch-theme");
+    return stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  });
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
 
-  // Navigation State
   const [activeTab, setActiveTab] = useState<
     "home" | "projects" | "teams" | "activity" | "conflicts"
   >("home");
 
-  // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [addMemberModalOpen, setAddMemberModalOpen] = useState(false);
 
-  // Dynamic Data
   const [projectList, setProjectList] = useState<Project[]>(initialProjects);
   const [activityList, setActivityList] = useState(initialActivities);
   const [memberList, setMemberList] = useState<Member[]>(initialMembers);
 
   useEffect(() => {
-    const stored = localStorage.getItem("contextswitch-theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const shouldUseDark = stored === "dark" || (!stored && prefersDark);
-    setDark(shouldUseDark);
-    document.documentElement.classList.toggle("dark", shouldUseDark);
-  }, []);
+    document.documentElement.classList.toggle("dark", dark);
+  }, [dark]);
 
   function toggleTheme() {
     const next = !dark;

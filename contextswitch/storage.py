@@ -647,3 +647,59 @@ def save_github_evidence_batch(
         )
 
     return len(evidence_items)
+
+
+def get_github_evidence(
+    team_id: str,
+    project_id: str,
+    limit: int = 50,
+):
+    """
+    Read stored GitHub evidence items.
+    """
+    query = (
+        _project_ref(team_id=team_id, project_id=project_id)
+        .collection("evidence")
+        .limit(limit)
+    )
+
+    items = []
+    for doc in query.stream():
+        data = doc.to_dict()
+        data["id"] = doc.id
+        items.append(data)
+
+    return items
+
+
+def remove_member(
+    team_id: str,
+    project_id: str,
+    worker_id: str,
+):
+    """
+    Remove a member from a project.
+    """
+    _project_ref(team_id=team_id, project_id=project_id).collection("members").document(worker_id).delete()
+
+
+def add_invitation(
+    team_id: str,
+    email: str,
+    role: str = "member",
+    invited_by: Optional[str] = None,
+):
+    """
+    Store a pending team invitation.
+    """
+    now = datetime.now(timezone.utc)
+    inv_ref = db.collection("teams").document(team_id).collection("invitations").document(email)
+    inv_ref.set({
+        "email": email,
+        "role": role,
+        "team_id": team_id,
+        "invited_by": invited_by,
+        "status": "pending",
+        "created_at": now,
+    }, merge=True)
+    return email

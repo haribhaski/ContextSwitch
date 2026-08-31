@@ -57,8 +57,8 @@ export default function CreateProjectModal({
       onClose();
       if (onSuccess) onSuccess();
       window.location.href = `/projects/${teamId}/${projectId}`;
-    } catch (err: any) {
-      setError(err.message || "Failed to create project");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to create project");
     } finally {
       setLoading(false);
     }

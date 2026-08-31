@@ -567,7 +567,7 @@ ${
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as "overview" | "people" | "activity" | "conflicts")}
                 className={`flex items-center gap-2 border-b-2 py-3.5 text-sm font-medium transition ${
                   isActive
                     ? "border-[#38bdf8] text-[#38bdf8]"
