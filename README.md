@@ -1,1680 +1,914 @@
 # ContextSwitch
 
-> **Your projects remember where you left off.**
+> **Git merges your code. ContextSwitch merges your team's AI reasoning.**
 
-ContextSwitch is an agentic AI workspace designed to help developers and teams resume interrupted projects without manually reconstructing context.
+ContextSwitch is a shared memory layer for software teams that use different AI coding assistants such as Cursor, Claude Code, Gemini, Antigravity, and GitHub Copilot.
 
-Instead of simply summarizing documents or GitHub activity, ContextSwitch maintains a structured representation of a project's **work state** and reasons about how that state changes over time.
+Modern development teams increasingly work with AI agents, but the reasoning generated inside those tools is usually siloed. Git preserves the final code, but it does not reliably preserve why a decision was made, what another teammate already tried, why an approach failed, what is currently blocked, or whether two teammates are making conflicting technical decisions.
 
-When a user returns to a project, ContextSwitch answers:
-
-* Where did I leave off?
-* What happened while I was away?
-* Which tasks were completed?
-* Which tasks are now outdated?
-* What decisions were made?
-* What blockers remain?
-* What changed?
-* What should I do next?
+ContextSwitch provides a shared project memory that sits between teammates and their AI tools.
 
 ---
 
-# 1. Core Idea
+## Table of Contents
 
-Normal AI assistants answer:
-
-> "What happened?"
-
-ContextSwitch tries to answer:
-
-> **"Given where I was before and everything that happened since, what is the project state now and what should I do next?"**
-
-The core reasoning operation is:
-
-```text
-Previous Work State
-        +
-New Evidence
-        ↓
-State Reconciliation
-        ↓
-Current Work State
-        ↓
-Best Next Action
-```
-
-Example:
-
-```text
-Previous next action:
-"Implement scalar gate"
-
-        ↓
-
-New GitHub evidence:
-"Teammate implemented scalar gate"
-
-        ↓
-
-New project requirement:
-"Compare scalar and vector gate using effective rank"
-
-        ↓
-
-ContextSwitch detects:
-
-Old task → COMPLETED / OUTDATED
-
-New next action →
-"Evaluate scalar and vector gate checkpoints
-using effective rank and slot utilization"
-```
-
-This state-transition reasoning is the central idea behind ContextSwitch.
+- [1. Problem Statement](#1-problem-statement)
+- [2. Objective & Core Principle](#2-objective--core-principle)
+- [3. Scope & Supported Entry Types](#3-scope--supported-entry-types)
+- [4. Product Architecture](#4-product-architecture)
+- [5. Data Model & Firestore Schema](#5-data-model--firestore-schema)
+- [6. Core Engine Breakdown](#6-core-engine-breakdown)
+  - [6.1 Reconciliation Engine](#61-reconciliation-engine)
+  - [6.2 Automated Conflict Detection](#62-automated-conflict-detection)
+  - [6.3 Conflict Resolution Workflow](#63-conflict-resolution-workflow)
+  - [6.4 Gemini Shared-Chat Import Engine](#64-gemini-shared-chat-import-engine)
+  - [6.5 People-Wise Context & Memory Layer](#65-people-wise-context--memory-layer)
+  - [6.6 GitHub Evidence Integration](#66-github-evidence-integration)
+  - [6.7 Context Export (`cs export`)](#67-context-export-cs-export)
+- [7. Codebase Structure](#7-codebase-structure)
+- [8. API Reference (FastAPI Backend)](#8-api-reference-fastapi-backend)
+- [9. CLI Reference (`cs`)](#9-cli-reference-cs)
+- [10. Web Dashboard & Frontend Architecture](#10-web-dashboard--frontend-architecture)
+- [11. Technology Stack](#11-technology-stack)
+- [12. Reproducible Testing Instructions](#12-reproducible-testing-instructions)
+  - [12.1 Environment Configuration](#121-environment-configuration)
+  - [12.2 Automated Python Test Suite](#122-automated-python-test-suite)
+  - [12.3 Starting the Backend and Frontend](#123-starting-the-backend-and-frontend)
+  - [12.4 Reproducible Flow 1: Two-Developer Conflict Detection & Resolution](#124-reproducible-flow-1-two-developer-conflict-detection--resolution)
+  - [12.5 Reproducible Flow 2: Gemini Shared Chat Import & Reasoning Ingestion](#125-reproducible-flow-2-gemini-shared-chat-import--reasoning-ingestion)
+  - [12.6 Reproducible Flow 3: Context Export into Fresh AI Session](#126-reproducible-flow-3-context-export-into-fresh-ai-session)
+- [13. What Has Been Completed](#13-what-has-been-completed)
+- [14. Roadmap & Next Steps](#14-roadmap--next-steps)
 
 ---
 
-# 2. Current User Flow
+## 1. Problem Statement
 
-The currently implemented workflow is:
+Consider two developers working on the same project:
 
 ```text
-User
- ↓
-Create Workspace
- ↓
-Enter GitHub Repository
- ↓
-ContextSwitch analyzes repository
- ↓
-Initial Context Agent
- ↓
-Initial Project Snapshot
- ↓
-Store Snapshot in Firestore
- ↓
-Display Project Dashboard
- ↓
-
-User leaves project
-
-        ...
-
-User returns
- ↓
-RESUME PROJECT
- ↓
-Load previous snapshot from Firestore
- ↓
-Fetch GitHub activity after snapshot
- ↓
-Reconciliation Agent
- ↓
-Detect project state changes
- ↓
-Generate updated project state
- ↓
-Generate best next action
- ↓
-Save new snapshot
- ↓
-Display Resume View
+Hariharan + Cursor                 Jeevan + Claude
+       |                                 |
+       | "Use ChromaDB"                  | "Use Pinecone"
+       |                                 |
+       +------------ ContextSwitch ------+
+                         |
+                 Shared Project Memory
+                         |
+             Automatic Conflict Detection
 ```
+
+Both developers may be productive individually, but their AI sessions do not naturally share reasoning.
+
+Existing development tools mainly preserve:
+- source code,
+- commits,
+- pull requests,
+- issues,
+- documentation.
+
+They do not provide a structured shared memory of the team's AI-assisted reasoning.
+
+This creates critical engineering challenges:
+- Teammates repeat experiments that have already failed;
+- Important reasoning disappears inside individual AI chat sessions;
+- Architectural decisions are known only to the person who made them;
+- Blockers are not automatically reflected in shared context;
+- Two developers can unknowingly make incompatible decisions;
+- Starting a new AI session requires manually explaining the project again.
 
 ---
 
-# 3. Tech Stack
+## 2. Objective & Core Principle
 
-## Frontend
+The objective of ContextSwitch is to create a **team-level memory system for AI-assisted software development**.
 
-* Next.js
-* TypeScript
-* Tailwind CSS
-* App Router
-
-## Backend
-
-* Python
-* FastAPI
-* Pydantic
-* Uvicorn
-
-## AI
-
-* Google Agent Development Kit (ADK)
-* Gemini
-* `gemini-3-flash-preview`
-* Google GenAI SDK
-
-## Storage
-
-* Google Cloud Firestore
-
-## Current Integration
-
-* GitHub REST API
-
-## Planned Integrations
-
-* Gmail
-* Google Drive
-* Google Calendar
-
-## Future Google Cloud Infrastructure
-
-* Cloud Run
-* Pub/Sub
-* Cloud Scheduler
-* Secret Manager
-* Firebase Authentication
-* Vertex AI / embeddings
-* Firestore vector search
-
----
-
-# 4. Current Architecture
+The system continuously maintains a structured understanding of:
 
 ```text
-                    USER
-                      │
-                      ▼
-               Next.js Frontend
-                      │
-                      ▼
-                 FastAPI API
-                      │
-          ┌───────────┴───────────┐
-          │                       │
-          ▼                       ▼
-     GitHub Connector        Firestore
-          │                       │
-          ▼                       │
-   Evidence Normalizer            │
-          │                       │
-          ▼                       │
-   Normalized Evidence            │
-          │                       │
-          ├───────────────────────┘
-          │
-          ▼
-       Google ADK
-          │
-          ▼
-        Gemini
-          │
-    ┌─────┴─────────┐
-    │               │
-    ▼               ▼
-Initial Context   Reconciliation
-    Agent             Agent
-    │                  │
-    ▼                  ▼
-Initial State     Updated State
-    │                  │
-    └────────┬─────────┘
-             ▼
-         Firestore
-             │
-             ▼
-      Next.js Dashboard
-```
-
----
-
-# 5. Agent Architecture
-
-ContextSwitch currently uses two separate AI agents.
-
-## 5.1 Initial Context Agent
-
-Used when a project is connected for the first time.
-
-Input:
-
-```text
-Repository metadata
-+
-README
-+
-Recent commits
-```
-
-Output:
-
-```json
-{
-  "goal": "",
-  "progress": [],
-  "decisions": [],
-  "failures": [],
-  "blockers": [],
-  "open_questions": [],
-  "dependencies": [],
-  "next_actions": []
-}
-```
-
-This becomes **Snapshot #1**.
-
----
-
-## 5.2 Reconciliation Agent
-
-Used when the user returns to an existing project.
-
-Input:
-
-```text
-PREVIOUS_WORK_STATE
-
-+
-
-NEW_EVIDENCE
-```
-
-Output:
-
-```json
-{
-  "where_you_left_off": {},
-  "changes": [],
-  "task_updates": [],
-  "current_state": {},
-  "next_action": {}
-}
-```
-
-The agent detects:
-
-* completed tasks
-* outdated tasks
-* changed tasks
-* new results
-* new decisions
-* resolved dependencies
-* new dependencies
-* new blockers
-* resolved blockers
-* new requirements
-
----
-
-# 6. What Has Been Completed
-
-## Phase 1 — Gemini Integration
-
-Completed.
-
-Gemini Developer API is connected and working.
-
-Environment variables are loaded from `.env`.
-
-The project currently uses:
-
-```text
-gemini-3-flash-preview
-```
-
----
-
-## Phase 2 — Google ADK
-
-Completed.
-
-Google ADK is installed and operational.
-
-Current installed version during development:
-
-```text
-google-adk 2.8.0
-```
-
-Programmatic execution works through the ADK Runner.
-
-The application no longer requires manually pasting prompts into ADK Web.
-
----
-
-## Phase 3 — Structured Reconciliation
-
-Completed.
-
-The reconciliation agent receives:
-
-```text
-Previous State
-+
-New Evidence
-```
-
-and produces structured JSON describing the project transition.
-
-A successful test detected:
-
-```text
-Previous task:
-Implement scalar gate
-
-New evidence:
-Scalar gate was implemented.
-
-Guide feedback:
-Compare effective rank and slot utilization.
-
-Result:
-Old task → completed
-
-New next action →
-Calculate effective rank and slot utilization.
-```
-
----
-
-# 7. Pydantic Validation
-
-Completed.
-
-AI responses are validated before being used by the application.
-
-Important schemas include:
-
-```text
-Change
-TaskUpdate
-WhereYouLeftOff
-CurrentState
-NextAction
-ReconciliationResult
-```
-
-This prevents malformed Gemini responses from silently entering the application.
-
----
-
-# 8. Reconciliation Service
-
-Completed.
-
-Current logical flow:
-
-```text
-reconcile_state()
-       ↓
-build_reconciliation_prompt()
-       ↓
-ADK Runner
-       ↓
-Gemini
-       ↓
-JSON
-       ↓
-Pydantic
-       ↓
-ReconciliationResult
-```
-
----
-
-# 9. GitHub Integration
-
-Completed for MVP.
-
-ContextSwitch can currently retrieve:
-
-### Repository metadata
-
-Including:
-
-* repository name
-* description
-* primary language
-* topics
-
-### README
-
-README content is extracted and provided as project evidence.
-
-### Recent commits
-
-GitHub commits are fetched using the GitHub REST API.
-
-Raw GitHub data is normalized into ContextSwitch evidence.
-
-Example:
-
-```json
-{
-  "id": "github_8f32a1",
-  "source": "github",
-  "type": "commit",
-  "timestamp": "...",
-  "content": "Developer committed: Implemented scalar gate"
-}
-```
-
----
-
-# 10. Evidence Normalization
-
-Completed for GitHub commits.
-
-External information is converted into a common evidence representation:
-
-```text
-External Source
-      ↓
-Connector
-      ↓
-Normalizer
-      ↓
-Evidence
-```
-
-Example:
-
-```json
-{
-  "id": "github_a92fb13",
-  "source": "github",
-  "type": "commit",
-  "timestamp": "...",
-  "content": "Added LangSmith tracing"
-}
-```
-
-This architecture will later allow Gmail, Drive, Calendar and other sources to use the same reasoning engine.
-
----
-
-# 11. Automatic Project Onboarding
-
-Completed.
-
-Previously, the project state was manually hardcoded:
-
-```text
-Goal:
-Compare scalar and vector gating
-```
-
-This has now been removed.
-
-ContextSwitch can analyze an arbitrary GitHub repository and automatically generate its first project state.
-
-This was successfully tested using a separate finance chatbot repository.
-
-ContextSwitch automatically inferred a goal similar to:
-
-> Build a production-ready domain-specific finance chatbot using Hybrid RAG, citation enforcement, knowledge graphs and evaluation-driven CI.
-
-It also detected progress including:
-
-* Hybrid BM25 + vector retrieval
-* Cohere reranking
-* LangSmith tracing
-* Neo4j knowledge graphs
-* RAGAS evaluation
-* GitHub Actions
-* Streamlit interface
-
-No information from the previous GPT-2 project leaked into the new workspace.
-
-Therefore project onboarding is now **dynamic**.
-
----
-
-# 12. FastAPI Backend
-
-Completed for the current MVP.
-
-The backend runs using:
-
-```bash
-python -m uvicorn backend:app --reload
-```
-
-Development API:
-
-```text
-http://127.0.0.1:8000
-```
-
-Swagger interface:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-Implemented endpoint:
-
-```text
-POST /workspaces
-```
-
-Example request:
-
-```json
-{
-  "name": "Finance Chatbot",
-  "github_owner": "username",
-  "github_repo": "repository"
-}
-```
-
-The backend:
-
-```text
-receives repository
-       ↓
-fetches GitHub evidence
-       ↓
-runs Initial Context Agent
-       ↓
-validates state
-       ↓
-stores workspace
-       ↓
-returns project state
-```
-
----
-
-# 13. Firestore Persistence
-
-Completed.
-
-ContextSwitch now has persistent project memory.
-
-Current logical structure:
-
-```text
-workspaces/
-    workspace_id/
-        name
-        github_owner
-        github_repo
-        created_at
-        last_snapshot_at
-        current_state
-
-        snapshots/
-            snapshot_1/
-                type
-                created_at
-                state
-
-            snapshot_2/
-                type
-                created_at
-                state
-```
-
-This allows ContextSwitch to maintain multiple versions of project state.
-
-It also provides the foundation for the future:
-
-**Context Time Machine**
-
-feature.
-
----
-
-# 14. Resume Backend
-
-Completed.
-
-ContextSwitch can:
-
-1. Load a workspace from Firestore.
-2. Read `last_snapshot_at`.
-3. Fetch GitHub commits after that timestamp.
-4. Normalize the new commits.
-5. Load the previous project state.
-6. Send previous state + new evidence to the Reconciliation Agent.
-7. Generate an updated project state.
-8. Save another snapshot to Firestore.
-
-Current flow:
-
-```text
-Firestore Snapshot #1
-        +
-GitHub changes since Snapshot #1
-        ↓
-Reconciliation Agent
-        ↓
-Current State
-        ↓
-Snapshot #2
-        ↓
-Firestore
-```
-
-If nothing changed, the backend returns:
-
-```text
-No new GitHub activity since your last snapshot.
-```
-
----
-
-# 15. Next.js Frontend
-
-Implemented for the MVP.
-
-The frontend currently supports:
-
-## Create Workspace
-
-The user enters:
-
-```text
-Project Name
-
-GitHub Repository
-```
-
-and selects:
-
-```text
-CREATE WORKSPACE
-```
-
-The frontend calls FastAPI.
-
----
-
-## Project Dashboard
-
-The generated project snapshot displays:
-
-### Current Goal
-
-### Progress
-
-### Next Actions
-
-### Decisions
-
-### Blockers
-
-### Open Questions
-
-### Failures
-
----
-
-## Resume Project
-
-The UI includes:
-
-```text
-RESUME PROJECT
-```
-
-The button is connected to:
-
-```text
-POST /workspaces/{workspace_id}/resume
-```
-
-The resume interface can display:
-
-### Where You Left Off
-
-The previous project goal/state.
-
-### While You Were Away
-
-Meaningful changes detected from new evidence.
-
-### Task Updates
-
-Example:
-
-```text
-Implement scalar gate
-
-pending → completed
-```
-
-### What You Should Do Next
-
-The highest-value next action generated after reconciliation.
-
----
-
-# 16. What Currently Works End-to-End
-
-The following complete workflow is operational:
-
-```text
-USER
- ↓
-Next.js
- ↓
-Create Workspace
- ↓
-FastAPI
- ↓
-GitHub API
- ↓
-Repository + README + commits
- ↓
-Evidence Normalization
- ↓
-Initial Context Agent
- ↓
-Gemini
- ↓
-Pydantic Validation
- ↓
-Initial Project State
- ↓
-Firestore
- ↓
-Project Dashboard
-```
-
-And the resume workflow:
-
-```text
-USER RETURNS
- ↓
-RESUME PROJECT
- ↓
-FastAPI
- ↓
-Firestore Previous State
- ↓
-last_snapshot_at
- ↓
-GitHub New Commits
- ↓
-Evidence Normalization
- ↓
-Reconciliation Agent
- ↓
-Gemini
- ↓
-Pydantic Validation
- ↓
-Updated State
- ↓
-New Snapshot
- ↓
-Firestore
- ↓
-Resume UI
-```
-
-This represents the current functional ContextSwitch MVP.
-
----
-
-# 17. Current Project Structure
-
-Approximate current structure:
-
-```text
-gemini hackahon/
-│
-├── backend.py
-│
-├── test_validation.py
-├── test_reconciliation.py
-├── test_github.py
-├── test_github_resume.py
-├── test_initial_context.py
-│
-├── contextswitch/
-│   │
-│   ├── __init__.py
-│   ├── agent.py
-│   ├── initial_agent.py
-│   ├── runner.py
-│   ├── reconciliation.py
-│   ├── initial_context.py
-│   ├── schemas.py
-│   ├── storage.py
-│   │
-│   └── connectors/
-│       ├── __init__.py
-│       └── github.py
-│
-├── frontend/
-│   ├── src/
-│   │   └── app/
-│   │       └── page.tsx
-│   └── ...
-│
-├── .env
-└── venv/
-```
-
----
-
-# 18. What Is Left To Build
-
-The core engine works, but several features are still required for the full hackathon vision.
-
-## Priority 1 — Improve Resume Experience
-
-The Resume screen exists, but it should become the strongest part of the demo.
-
-Improve visual distinction between:
-
-```text
-NEW
-COMPLETED
-OUTDATED
-BLOCKED
-RESOLVED
-CHANGED
-```
-
-Outdated tasks should be particularly prominent because this is one of ContextSwitch's main differentiators.
-
----
-
-## Priority 2 — Stronger GitHub Evidence
-
-Currently the GitHub integration primarily uses:
-
-```text
-README
-repository metadata
-commits
-```
-
-Add:
-
-```text
-Pull Requests
-Issues
-PR comments
-Issue comments
-Changed files
-Commit diffs
-```
-
-This will make reconciliation significantly more accurate.
-
-A commit message alone may say:
-
-```text
-Fix authentication
-```
-
-while the diff and PR discussion can explain exactly what changed and why.
-
----
-
-## Priority 3 — Gmail Integration
-
-Add Google OAuth and Gmail access.
-
-Relevant project emails should become evidence:
-
-```json
-{
-  "id": "gmail_...",
-  "source": "gmail",
-  "type": "email",
-  "timestamp": "...",
-  "content": "..."
-}
-```
-
-Examples:
-
-```text
-Professor changed project requirements
-
-Client approved design
-
-Teammate reported blocker
-
-Reviewer requested modifications
-```
-
-This is important because many project decisions never appear in GitHub.
-
----
-
-## Priority 4 — Google Drive Integration
-
-Analyze project-related:
-
-```text
-Docs
-PDFs
-meeting notes
-requirements
-reports
-design documents
-```
-
-Drive evidence should pass through the same evidence normalization layer.
-
----
-
-## Priority 5 — Calendar Integration
-
-Calendar can provide context about:
-
-```text
-meetings
-deadlines
-reviews
-presentations
-milestones
-```
-
-Example:
-
-```text
-Project review tomorrow
-```
-
-could influence the next action generated by the Action Planner.
-
----
-
-# 19. Outdated Task Detection
-
-This should become an explicit first-class feature.
-
-Example:
-
-```text
-Previous Task
-
-"Implement authentication"
-```
-
-New evidence:
-
-```text
-GitHub:
-Teammate merged authentication implementation.
-```
-
-ContextSwitch should show:
-
-```text
-OUTDATED TASK
-
-Implement authentication
-
-Reason:
-Authentication has already been implemented
-and merged by another team member.
-```
-
-This is much stronger than simply showing a GitHub summary.
-
----
-
-# 20. Decision Memory
-
-Still to be expanded.
-
-ContextSwitch should maintain:
-
-```text
-Decision
-Why it was made
-Evidence
-Timestamp
-Current validity
-```
-
-Example:
-
-```text
-Decision
-
-Use Chroma instead of FAISS.
-
-Why
-
-Existing application already uses persistent
-Chroma collections.
-
-Source
-
-Architecture discussion / commit / email
-```
-
-Later ContextSwitch can detect when a decision becomes invalid.
-
----
-
-# 21. Contradiction Detection
-
-Still to be implemented.
-
-Example:
-
-```text
-Previous decision:
-
-Use Chroma.
-
-New README:
-
-Vector database migrated to Qdrant.
-```
-
-ContextSwitch should detect:
-
-```text
-CONTRADICTION / DECISION CHANGE
-```
-
-instead of preserving both as valid decisions.
-
----
-
-# 22. Context Time Machine
-
-Firestore snapshots already provide the foundation.
-
-Future UI:
-
-```text
-Project History
-
-Aug 25
-↓
-Snapshot
-
-Aug 27
-↓
-Snapshot
-
-Aug 29
-↓
-Current
-```
-
-Selecting an old snapshot should show:
-
-```text
-Goal at that time
-Progress
+Project Goal
+Completed Work / Progress
 Decisions
+Failed Attempts
 Blockers
-Next actions
+Open Questions
+Dependencies
+Next Actions
+Conflicts
+Team Activity
 ```
 
-This provides a historical view of how the project evolved.
+### Core Principle
+
+> **Code captures outcomes. ContextSwitch captures reasoning.**
+
+The long-term goal is for any teammate, or any AI coding tool used by that teammate, to retrieve the current project context without reconstructing it manually.
 
 ---
 
-# 23. Project-Aware Chat
+## 3. Scope & Supported Entry Types
 
-Still to be implemented.
+ContextSwitch supports:
+1. **Teams & Role Management**
+2. **Projects Inside Teams**
+3. **Team Members / Workers**
+4. **Structured Project Entries**
+5. **AI-Assisted Reconciliation** of new entries into shared project state
+6. **Automatic Conflict Detection** between teammates
+7. **Conflict Persistence and Resolution Support**
+8. **Project Snapshots & State History**
+9. **Public Gemini Shared-Chat Import** (Playwright + Gemini GenAI SDK)
+10. **People-Wise Context & Memory Exploration**
+11. **GitHub Evidence Collection & Normalization**
+12. **Google Cloud Firestore Persistence**
+13. **FastAPI Backend with User-Aware Authorization**
+14. **CLI-based Interaction (`cs`)**
+15. **Google OAuth Login (Auth.js / NextAuth)**
+16. **Web Dashboard backed by real project data**
+17. **Light and Dark UI modes with persisted preference**
 
-Example questions:
+### Entry Types
+- `decision`: Key technical or architectural choices.
+- `completed`: Completed tasks, implementations, or experiments.
+- `blocker`: Blocker items preventing work progress.
+- `failure`: Failed attempts and reasons why not to repeat them.
+- `note` / `update`: General technical context or notes.
+- `conflict_resolution`: Explicit resolution recorded by a team member.
 
-```text
-Why did we choose Neo4j?
-
-What happened with evaluation?
-
-What was I supposed to do next?
-
-When did we introduce LangSmith?
-
-What is currently blocking deployment?
+Example via CLI:
+```bash
+cs log "Use ChromaDB because Pinecone is too expensive"
 ```
 
-Answers should be grounded in project evidence and snapshots.
-
----
-
-# 24. Continue For Me
-
-Planned agentic feature.
-
-ContextSwitch should eventually allow safe actions such as:
-
-```text
-Draft email reply
-
-Create GitHub issue
-
-Create task
-
-Prepare status update
-
-Draft implementation plan
-
-Create meeting agenda
-```
-
-All write operations should require explicit user approval.
-
----
-
-# 25. Critic Agent
-
-Still to be implemented.
-
-Proposed flow:
-
-```text
-Previous State
-+
-Evidence
- ↓
-Reconciliation Agent
- ↓
-Draft State
- ↓
-Critic Agent
- ↓
-Check:
-
-Is every conclusion supported?
-
-Was evidence missed?
-
-Are there contradictions?
-
-Was anything invented?
-
- ↓
-Validated State
-```
-
-This will improve reliability and reduce hallucination.
-
----
-
-# 26. Provenance
-
-Partially implemented through `source` and `evidence_id`.
-
-Needs to become visible in the UI.
-
-Example:
-
-```text
-✓ Authentication completed
-
-Evidence:
-GitHub commit 8f32a1
-```
-
-Users should be able to understand **why ContextSwitch believes something changed**.
-
-This is important for trust.
-
----
-
-# 27. Project Health
-
-Planned feature.
-
-Possible indicators:
-
-```text
-2 unresolved blockers
-
-3 outdated tasks
-
-1 unresolved dependency
-
-No activity for 8 days
-
-4 major changes since last session
-```
-
-Potential output:
-
-```text
-PROJECT HEALTH
-
-Needs Attention
-
-2 blockers
-1 stale dependency
-3 outdated tasks
+Structured API entry payload:
+```json
+{
+  "worker_id": "hariharan",
+  "entry_type": "decision",
+  "content": "Use ChromaDB because Pinecone is too expensive",
+  "source": "cursor"
+}
 ```
 
 ---
 
-# 28. Authentication
-
-Not yet implemented.
-
-Planned:
+## 4. Product Architecture
 
 ```text
-Firebase Authentication
-+
-Google OAuth
+                    +------------------------------------------+
+                    |                Teammates                 |
+                    +------------------------------------------+
+                       |              |              |
+                    Cursor          Claude         Gemini
+                       |              |              |
+                       +------- ContextSwitch CLI / Web -------+
+                                      |
+                                   FastAPI
+                                      |
+                     +----------------+----------------+
+                     |                                 |
+              Gemini GenAI / ADK             Playwright Ingestion
+              Reconciliation Layer           (Public Gemini Chats)
+                     |                                 |
+                     +----------------+----------------+
+                                      |
+                           Conflict Detection Layer
+                                      |
+                                  Firestore
+                                      |
+                  +-------------------+-------------------+
+                  |                                       |
+           Shared Project State                      Raw History
+                  |                                       |
+        decisions / blockers /                 entries / evidence /
+        failures / next actions                 conflicts / snapshots
 ```
 
-Users should eventually sign in and own their individual workspaces.
-
----
-
-# 29. GitHub OAuth
-
-Current MVP uses a GitHub Personal Access Token.
-
-For the final application this should be replaced with:
-
-```text
-Connect GitHub
-```
-
-using OAuth or a GitHub App.
-
-Users should not manually provide API tokens.
-
----
-
-# 30. Background Synchronization
-
-Not implemented yet.
-
-Current evidence is fetched when required.
-
-Future architecture:
+GitHub acts as an additional source of automatic project evidence:
 
 ```text
 GitHub
-Gmail
-Drive
-Calendar
-     ↓
-Background Sync
-     ↓
-Pub/Sub
-     ↓
-Evidence Store
-```
-
-Possible infrastructure:
-
-```text
-Google Cloud Pub/Sub
-Cloud Scheduler
-Cloud Run
+  |
+commits / PRs / issues / comments
+  |
+ContextSwitch Evidence Pipeline (Normalization / Deduplication / Ranking)
+  |
+Shared Project Memory
 ```
 
 ---
 
-# 31. Deployment
+## 5. Data Model & Firestore Schema
 
-Currently local.
-
-Development:
+ContextSwitch is organized around a multi-tenant hierarchy:
 
 ```text
-Frontend
-localhost:3000
-
-Backend
-localhost:8000
+Team
+ └── Project
+      └── Worker
 ```
 
-Planned deployment:
+### Firestore Structure
 
 ```text
-Next.js
-   ↓
-Cloud deployment
-
-FastAPI
-   ↓
-Google Cloud Run
+teams/
+└── {team_id}/
+    ├── name
+    ├── members/
+    │   └── {email}/  (worker_id, name, email, role, added_at)
+    └── projects/
+        └── {project_id}/
+            ├── current_state  (goal, progress, decisions, failures, blockers, ...)
+            ├── github_owner
+            ├── github_repo
+            ├── members/
+            │   └── {worker_id}/  (worker_id, name, email, role)
+            ├── entries/
+            │   └── {entry_id}/   (worker_id, type, content, source, timestamp, metadata)
+            ├── evidence/
+            │   └── {evidence_id}/ (type, content, source, score, timestamp)
+            ├── conflicts/
+            │   └── {conflict_id}/ (topic, side_a, side_b, reason, status, resolution)
+            ├── snapshots/
+            │   └── {snapshot_id}/ (state, snapshot_type, timestamp)
+            ├── raw_imports/
+            │   └── {import_id}/   (source_url, extracted_items, approved_items, status)
+            └── member_memory/
+                └── {worker_id}/   (decisions, failures, blockers, risks, assumptions)
 ```
 
-Cloud Run and other billing-dependent infrastructure can be enabled when hackathon credits or billing are available.
-
----
-
-# 32. Semantic Retrieval
-
-Not implemented yet.
-
-Future plan:
-
-```text
-Project evidence
- ↓
-Vertex AI Embeddings
- ↓
-Firestore Vector Search
- ↓
-Relevant evidence retrieval
- ↓
-Gemini
-```
-
-This becomes important when projects contain thousands of:
-
-```text
-commits
-emails
-documents
-messages
-decisions
-```
-
-Instead of putting all project history into every Gemini prompt, ContextSwitch will retrieve only relevant evidence.
-
----
-
-# 33. Evidence Layer — Future Unified Schema
-
-All connectors should eventually produce a common structure:
+### Shared Project State Object
 
 ```json
 {
-  "id": "",
-  "workspace_id": "",
-  "source": "",
-  "type": "",
-  "timestamp": "",
-  "actor": "",
-  "content": "",
-  "url": "",
-  "metadata": {}
+  "goal": "Build a shared memory layer for AI-assisted developer teams",
+  "progress": [
+    "Gemini reconciliation engine implemented",
+    "Firestore storage connector implemented",
+    "Google OAuth frontend integration completed"
+  ],
+  "decisions": [
+    "Use ChromaDB for local vector embeddings",
+    "Use FastAPI for backend services"
+  ],
+  "failures": [
+    "Direct Pinecone connection timed out under free tier rate limits"
+  ],
+  "blockers": [
+    "Waiting for Gemini API production quota increase"
+  ],
+  "open_questions": [
+    "Should background sync use Google Cloud Pub/Sub?"
+  ],
+  "dependencies": [
+    "Google Cloud project contextswitch-hackathon-26"
+  ],
+  "next_actions": [
+    "Implement member-wise memory filter UI"
+  ]
 }
 ```
 
-Possible sources:
+---
+
+## 6. Core Engine Breakdown
+
+### 6.1 Reconciliation Engine
+
+When a teammate submits a new entry, the backend does not simply append it to an unstructured feed. Instead, the Gemini-powered reconciliation pipeline processes the state transition:
 
 ```text
-github
-gmail
-drive
-calendar
-manual
+New Team Entry
+      |
+      v
+Store Raw Entry
+      |
+      v
+Read Existing Shared State & Recent Entries
+      |
+      v
+Gemini Reconciliation Agent
+      |
+      +--> Update Progress (moves completed items, resolves matching blockers/actions)
+      +--> Update Decisions (preserves rationale, updates worker positions)
+      +--> Update Failures (records failed approaches with context to prevent repeats)
+      +--> Update Blockers & Next Actions
+      +--> Analyze Cross-Worker Contradictions
+      |
+      v
+Save New Shared State & Conflict (if detected) & Snapshot
 ```
 
-This allows the reasoning engine to remain independent of the source.
+#### Reconciliation Rules
+1. **No Hallucination**: Do not invent information absent from entries or evidence.
+2. **Deduplication**: Prevent repeated duplicate entries in state.
+3. **Completed Work Transition**: Completed work moves into `progress` and is cleared from active `next_actions` or `blockers`.
+4. **Preserve Rationale**: Retain the *why* behind decisions and failed attempts.
+5. **Worker Position Updates**: Newer changes from the same worker update that worker's position.
+6. **Cross-Worker Conflict Isolation**: Incompatible positions from different teammates trigger a conflict rather than overwriting silently.
 
 ---
 
-# 34. Recommended Next Development Order
+### 6.2 Automated Conflict Detection
 
-The recommended sequence from the current working MVP is:
+Conflict detection is a foundational differentiator of ContextSwitch.
 
-```text
-CURRENT STATE
-   │
-   ├── Initial Context Agent       ✓
-   ├── Reconciliation Agent        ✓
-   ├── Gemini / ADK                ✓
-   ├── GitHub                      ✓
-   ├── Firestore                   ✓
-   ├── FastAPI                     ✓
-   ├── Next.js                     ✓
-   └── Resume workflow             ✓
-            │
-            ▼
-1. Improve Resume UI
-            │
-            ▼
-2. Explicit Outdated Task Detection
-            │
-            ▼
-3. GitHub PR + Issue Evidence
-            │
-            ▼
-4. Provenance / Evidence Links
-            │
-            ▼
-5. Gmail Integration
-            │
-            ▼
-6. Drive Integration
-            │
-            ▼
-7. Critic Agent
-            │
-            ▼
-8. Context Time Machine
-            │
-            ▼
-9. Project-Aware Chat
-            │
-            ▼
-10. Continue For Me
-            │
-            ▼
-11. Authentication + OAuth
-            │
-            ▼
-12. Background Sync
-            │
-            ▼
-13. Cloud Deployment
+#### Real Example:
+- **Developer 1 (Hariharan via Cursor)**: `"Use ChromaDB because Pinecone is too expensive"`
+- **Developer 2 (Jeevan via Claude)**: `"Use Pinecone because retrieval quality is better"`
+
+Gemini reconciliation detects the contradiction:
+
+```json
+{
+  "topic": "Vector Database Selection",
+  "side_a": {
+    "worker_id": "hariharan",
+    "position": "Use ChromaDB because Pinecone is too expensive"
+  },
+  "side_b": {
+    "worker_id": "jeevan",
+    "position": "Use Pinecone because retrieval quality is better"
+  },
+  "reason": "The team members have made contradictory decisions regarding the choice of vector database."
+}
 ```
+
+The conflict is persisted with status `unresolved` in Firestore and flagged prominently across the Web Dashboard and Project Details view.
 
 ---
 
-# 35. Current MVP Status
+### 6.3 Conflict Resolution Workflow
 
-| Component                   | Status                 |
-| --------------------------- | ---------------------- |
-| Gemini API                  | ✅ Working              |
-| Google ADK                  | ✅ Working              |
-| Programmatic Agent Runner   | ✅ Working              |
-| Initial Context Agent       | ✅ Working              |
-| Reconciliation Agent        | ✅ Working              |
-| Structured JSON Output      | ✅ Working              |
-| Pydantic Validation         | ✅ Working              |
-| GitHub Repository Metadata  | ✅ Working              |
-| GitHub README               | ✅ Working              |
-| GitHub Commits              | ✅ Working              |
-| Evidence Normalization      | ✅ Working              |
-| Dynamic Project Onboarding  | ✅ Working              |
-| FastAPI Backend             | ✅ Working              |
-| Firestore                   | ✅ Working              |
-| Snapshot Storage            | ✅ Working              |
-| Resume Backend              | ✅ Working              |
-| Next.js UI                  | ✅ Working              |
-| Create Workspace UI         | ✅ Working              |
-| Project Dashboard           | ✅ Working              |
-| Resume UI                   | ✅ Working              |
-| Outdated Task Detection     | 🟡 Basic agent support |
-| GitHub PRs                  | ❌ Pending              |
-| GitHub Issues               | ❌ Pending              |
-| Provenance UI               | ❌ Pending              |
-| Gmail                       | ❌ Pending              |
-| Google Drive                | ❌ Pending              |
-| Calendar                    | ❌ Pending              |
-| Critic Agent                | ❌ Pending              |
-| Context Time Machine        | ❌ Pending              |
-| Project-Aware Chat          | ❌ Pending              |
-| Continue For Me             | ❌ Pending              |
-| Firebase Authentication     | ❌ Pending              |
-| GitHub OAuth/App            | ❌ Pending              |
-| Background Sync             | ❌ Pending              |
-| Cloud Deployment            | ❌ Pending              |
-| Semantic / Vector Retrieval | ❌ Pending              |
-
----
-
-# 36. Hackathon Demo Vision
-
-A strong final demo should look like this:
-
-### Step 1 — Create Workspace
+When a team decides on a path forward, any teammate can resolve the conflict directly through the UI or API:
 
 ```text
-Project:
-Finance Chatbot
-
-GitHub:
-haribhaski/finance-chatbot
-```
-
-Click:
-
-```text
-CREATE WORKSPACE
+Active Conflict in Dashboard
+         │
+         ▼
+Open Conflict Modal / API Resolve Endpoint
+         │
+         ▼
+Submit Resolution Rationale (e.g. "Use ChromaDB for MVP, evaluate Pinecone in Phase 2")
+         │
+         ├── Conflict marked as 'resolved' with 'resolved_by' and 'resolved_at'
+         ├── Resolution logged as a 'conflict_resolution' project entry
+         └── Project current_state updated automatically
 ```
 
 ---
 
-### Step 2 — ContextSwitch Reconstructs Project
+### 6.4 Gemini Shared-Chat Import Engine
 
-Without manually explaining the repository, ContextSwitch displays:
+In addition to CLI logging, ContextSwitch supports ingesting public **Gemini Shared Chat links** (`chat_import.py`):
+
+1. **URL Validation**: Ensures the URL is a valid public `gemini.google.com/share/...` link.
+2. **Headless Browser Rendering**: Uses Playwright to render the conversation content dynamically.
+3. **Structured Extraction**: Prompts Gemini to parse:
+   - What the user did
+   - Decisions made
+   - Assumptions & constraints
+   - Risk flags
+   - Blockers & failures
+4. **Review & Approval**: The user reviews extracted items in the web modal, selecting which items to merge into shared team memory.
+5. **Reconciliation**: Approved items run through the reconciliation engine, updating project state and member memory.
+
+---
+
+### 6.5 People-Wise Context & Memory Layer
+
+ContextSwitch allows exploring project context by team member:
+- Filter entries and decisions by worker (`worker_id`).
+- View what each developer has completed, what tools they used (Cursor, Claude, Gemini, Antigravity, CLI), their active blockers, and their rationale.
+- API Endpoint: `GET /teams/{team_id}/projects/{project_id}/members/{worker_id}/memory`
+
+---
+
+### 6.6 GitHub Evidence Integration
+
+`contextswitch/connectors/github.py` collects:
+- Repository metadata & README
+- Commits, changed files, and patch excerpts
+- Pull requests and PR review comments
+- Issues and issue discussion comments
+
+The pipeline performs:
+- **Normalization**: Standardizes GitHub artifacts into common evidence schemas.
+- **Deduplication**: Prevents duplicate processing of repeated commits or PR events.
+- **Ranking & Linking**: Groups related PRs, commits, and comments as corroborating evidence.
+
+---
+
+### 6.7 Context Export (`cs export`)
+
+ContextSwitch makes project context portable across any AI session:
+
+```bash
+cs export
+```
+
+Generates structured context ready to paste into **Cursor, Claude Code, Gemini, Antigravity, or Copilot**:
 
 ```text
-GOAL
+PROJECT: ContextSwitch (contextswitch)
+TEAM: team-alpha
 
-Build a production-ready finance chatbot...
+PROJECT GOAL:
+Build a shared memory layer for teams using different AI coding agents.
 
+COMPLETED WORK:
+- Gemini reconciliation engine implemented
+- Firestore storage connector implemented
+- Google OAuth frontend integration completed
+
+DECISIONS:
+- Use ChromaDB for local vector embeddings
+- Use FastAPI for backend services
+
+DO NOT REPEAT (FAILURES):
+- Direct Pinecone connection timed out under free tier rate limits
+
+BLOCKERS:
+- Waiting for Gemini API production quota increase
+
+ACTIVE CONFLICTS:
+- Vector Database Selection: Hariharan (ChromaDB) vs Jeevan (Pinecone)
+
+NEXT ACTIONS:
+- Implement member-wise memory filter UI
+```
+
+---
+
+## 7. Codebase Structure
+
+```text
+.
+├── .env.example                     # Backend environment configuration template
+├── pyproject.toml                   # Python CLI package configuration (pip install -e .)
+├── CMDS.md                          # Quick start commands
+├── backend.py                       # FastAPI application & REST endpoints
+├── chat_import.py                   # Gemini Shared-Chat Playwright + Gemini extraction module
+│
+├── contextswitch/                   # Core Python package
+│   ├── agent.py                     # Gemini reconciliation agent instructions
+│   ├── initial_agent.py             # Initial project understanding agent
+│   ├── initial_context.py           # Initial state builder from repository evidence
+│   ├── reconciliation.py            # State transition reconciliation runner
+│   ├── runner.py                    # Google ADK / Gemini GenAI execution runner
+│   ├── schemas.py                   # Pydantic schemas (CurrentState, TeamEntry, Conflict, etc.)
+│   ├── storage.py                   # Google Cloud Firestore persistence layer
+│   ├── team_reconciliation.py       # Team entry prompt builder & conflict parser
+│   └── connectors/
+│       └── github.py                # GitHub REST API evidence collector
+│
+├── contextswitch_cli/               # CLI package
+│   └── cli.py                       # 'cs' CLI implementation (init, log, done, blocked, export)
+│
+├── frontend/                        # Next.js Web Application
+│   ├── .env.example                 # Frontend environment template
+│   ├── package.json                 # Next.js 16 + React 19 + Auth.js
+│   ├── auth.ts                      # NextAuth Google OAuth configuration
+│   ├── app/
+│   │   ├── layout.tsx               # Root layout & theme providers
+│   │   ├── page.tsx                 # Root landing / redirect
+│   │   ├── login/page.tsx           # Google OAuth sign-in page
+│   │   ├── dashboard/page.tsx       # Main user dashboard
+│   │   └── projects/
+│   │       └── [team_id]/
+│   │           └── [project_id]/
+│   │               └── page.tsx     # Project Details (Overview, People, Activity, Conflicts)
+│   └── components/
+│       ├── dashboard-shell.tsx       # Dashboard layout & stats
+│       ├── project-details-shell.tsx # Comprehensive project view
+│       ├── import-ai-context-modal.tsx # Gemini chat import modal
+│       ├── create-team-modal.tsx    # Team creation dialog
+│       ├── create-project-modal.tsx # Project creation dialog
+│       └── add-member-modal.tsx     # Add teammate dialog
+│
+├── test_validation.py               # Pydantic schema validation test
+├── test_gemini.py                   # Direct Gemini API connectivity test
+├── test_github.py                   # GitHub connector & normalization test
+├── test_initial_context.py          # Initial repository context agent test
+├── test_reconciliation.py           # Multi-source state reconciliation test
+└── test_github_resume.py            # GitHub commit evidence reconciliation test
+```
+
+---
+
+## 8. API Reference (FastAPI Backend)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/` | API status check |
+| `GET` | `/me/dashboard` | Returns authenticated user's teams, projects, stats, and conflicts |
+| `POST` | `/teams` | Create a new team |
+| `POST` | `/teams/{team_id}/members` | Add a member to a team |
+| `POST` | `/projects` | Create a new project inside a team |
+| `GET` | `/teams/{team_id}/projects/{project_id}` | Fetch project details, members, and state |
+| `POST` | `/teams/{team_id}/projects/{project_id}/members` | Add a member to a project |
+| `GET` | `/teams/{team_id}/projects/{project_id}/members` | List members of a project |
+| `POST` | `/teams/{team_id}/projects/{project_id}/entries` | Submit a new team entry & trigger Gemini reconciliation |
+| `GET` | `/teams/{team_id}/projects/{project_id}/entries` | Retrieve project entry history |
+| `GET` | `/teams/{team_id}/projects/{project_id}/conflicts` | List project conflicts (active or all) |
+| `POST` | `/teams/{team_id}/projects/{project_id}/conflicts/{conflict_id}/resolve` | Resolve an active conflict |
+| `GET` | `/teams/{team_id}/projects/{project_id}/export` | Export structured project context for AI assistants |
+| `POST` | `/teams/{team_id}/projects/{project_id}/sync-github` | Trigger GitHub evidence synchronization |
+| `POST` | `/teams/{team_id}/projects/{project_id}/imports/chat/analyze` | Analyze a public Gemini chat URL via Playwright |
+| `POST` | `/teams/{team_id}/projects/{project_id}/imports/{import_id}/approve` | Approve extracted items & reconcile into memory |
+| `GET` | `/teams/{team_id}/projects/{project_id}/members/{worker_id}/memory` | Retrieve person-wise memory and history |
+
+---
+
+## 9. CLI Reference (`cs`)
+
+Install CLI in editable mode:
+```bash
+pip install -e .
+```
+
+### Commands
+
+| Command | Usage | Description |
+|---|---|---|
+| `cs init` | `cs init --team <id> --project <id> --worker <id> [--source <tool>]` | Initialize workspace configuration (`.contextswitch`) |
+| `cs log` | `cs log "<message>"` | Log a decision to shared project memory |
+| `cs done` | `cs done "<message>"` | Record completed work and update progress |
+| `cs blocked` | `cs blocked "<message>"` | Record an active blocker |
+| `cs fail` | `cs fail "<message>"` | Record a failed approach with reasons to avoid |
+| `cs status` | `cs status` | Fetch and display current shared project state |
+| `cs export` | `cs export` | Export prompt-ready markdown for Cursor / Claude / Gemini |
+
+---
+
+## 10. Web Dashboard & Frontend Architecture
+
+The frontend is built with **Next.js 16 (App Router)** and styled with a Google-inspired design system:
+
+- **Google OAuth Authentication**: Login via Auth.js / NextAuth. Frontend passes `X-User-Email` to backend APIs for user-isolated access.
+- **Dynamic Dashboard (`/dashboard`)**:
+  - Live team & project switching
+  - Project stats (total projects, members, unresolved conflicts, blockers)
+  - Active conflicts alert banner with 1-click resolution
+  - Recent activity timeline across all team members
+- **Project Details (`/projects/[team_id]/[project_id]`)**:
+  - **Overview Tab**: Current project goal, progress checklist, decisions, blockers, failures, dependencies, and next actions.
+  - **People Tab**: Person-wise reasoning and history (what Hariharan decided, what Jeevan tried, tool used).
+  - **Activity Tab**: Real-time chronological audit trail of all entries.
+  - **Conflicts Tab**: Side-by-side view of conflicting positions, reason for conflict, and resolution controls.
+- **AI Chat Import Modal**: Paste a Gemini public share link, inspect extracted knowledge items, select items, and merge with one click.
+- **Dark & Light Mode**: Persistent theme toggle matching modern developer workflows.
+
+---
+
+## 11. Technology Stack
+
+- **AI & Reasoning Layer**:
+  - Google Gemini API (`gemini-3-flash-preview` / `gemini-2.5-flash`)
+  - Google GenAI SDK (`google-genai` 2.20.0)
+  - Google Agent Development Kit (`google-adk` 2.8.0)
+- **Backend Framework**:
+  - Python 3.10+
+  - FastAPI 0.141.1
+  - Pydantic v2
+  - Uvicorn
+  - Playwright 1.62.0 (Headless Chromium chat extraction)
+- **Database & Cloud**:
+  - Google Cloud Firestore
+  - Google Cloud Project: `contextswitch-hackathon-26`
+- **Frontend Framework**:
+  - Next.js 16.3.3 (App Router)
+  - React 19.2.8
+  - TypeScript 5
+  - Tailwind CSS v4
+  - Auth.js / NextAuth (Google OAuth)
+  - Lucide Icons
+
+---
+
+## 12. Reproducible Testing Instructions
+
+Follow these exact steps to verify the entire system, run the automated test suite, launch the services, and reproduce the end-to-end multi-agent conflict detection flow.
+
+---
+
+### 12.1 Environment Configuration
+
+#### 1. Backend Environment Setup (`.env`)
+Create a `.env` file in the root workspace directory:
+
+```bash
+cp .env.example .env
+```
+
+Configure the following variables in `.env`:
+```env
+GOOGLE_API_KEY=your_gemini_api_key_here
+GOOGLE_GENAI_USE_VERTEXAI=FALSE
+GITHUB_TOKEN=your_optional_github_token_here
+GOOGLE_CLOUD_PROJECT=contextswitch-hackathon-26
+```
+
+> **Note on Firestore credentials**: Ensure you are authenticated with Google Cloud CLI (`gcloud auth application-default login`) or set `GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json`.
+
+#### 2. Python Virtual Environment Setup
+```bash
+# Create virtual environment if needed
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Install dependencies & CLI
+pip install -r <(pip list --format=freeze)  # or use the active venv
+pip install -e .
+playwright install chromium
+```
+
+#### 3. Frontend Environment Setup (`frontend/.env.local`)
+In `frontend/.env.local`:
+```env
+AUTH_SECRET=a_random_32_character_secret_here
+AUTH_GOOGLE_ID=your_google_oauth_client_id.apps.googleusercontent.com
+AUTH_GOOGLE_SECRET=your_google_oauth_client_secret
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_DEMO_MODE=false
+```
+
+---
+
+### 12.2 Automated Python Test Suite
+
+The repository contains standalone automated test scripts to validate individual modules independently:
+
+#### Test 1: Pydantic Validation & Schema Integrity
+Validates that incoming reconciliation outputs and state transition structures conform strictly to Pydantic schemas without relying on external network calls.
+```bash
+python test_validation.py
+```
+**Expected Output:**
+```text
+VALID
+Goal: Compare scalar and vector gating using perplexity, effective rank, and slot utilization.
+Next action: Calculate effective rank and slot utilization for scalar and vector gate checkpoints.
+```
+
+#### Test 2: Gemini API Connectivity Test
+Validates that the Google GenAI SDK can authenticate with Gemini and generate responses.
+```bash
+python test_gemini.py
+```
+**Expected Output:**
+```text
+ContextSwitch Gemini connection works.
+```
+
+#### Test 3: GitHub Connector & Normalization Test
+Validates fetching commits from GitHub REST API and normalizing them into structured evidence items.
+```bash
+python test_github.py
+```
+**Expected Output:**
+```text
+Evidence dictionaries printed with commit hash, author, commit message, and normalized metadata.
+```
+
+#### Test 4: Initial Project Context Agent Test
+Validates extracting full project state (goal, progress, blockers, next actions) directly from a GitHub repository README and commits.
+```bash
+python test_initial_context.py
+```
+**Expected Output:**
+```text
+PROJECT GOAL
+...
 PROGRESS
-
-✓ Hybrid retrieval implemented
-✓ Citation enforcement implemented
-✓ Neo4j graph persistence added
-✓ LangSmith tracing integrated
-
+- ...
+BLOCKERS
+- ...
 NEXT ACTIONS
+- ...
+```
 
-→ Expand evaluation dataset
-→ Add deployment API
+#### Test 5: State Reconciliation Engine Test
+Validates reconciling a previous project state with multi-source evidence (GitHub commit, experiment metric, guide email).
+```bash
+python test_reconciliation.py
+```
+**Expected Output:**
+```text
+VALID RESULT
+Goal: Compare scalar and vector gating...
+Next action: Calculate effective rank and slot utilization...
+Reason: The project guide requested these metrics.
+```
+
+#### Test 6: GitHub Resume & State Transition Test
+Validates fetching live commits since a snapshot and executing automated task completion/outdated detection.
+```bash
+python test_github_resume.py
 ```
 
 ---
 
-### Step 3 — User Leaves
+### 12.3 Starting the Backend and Frontend
 
-A teammate makes changes.
+Run the backend and frontend in separate terminal windows:
 
-For example:
+#### Terminal 1 — Backend (FastAPI)
+```bash
+# Activate venv
+source venv/bin/activate
 
-```text
-Commit:
-Added FastAPI deployment layer
+# Start FastAPI server on port 8000
+python -m uvicorn backend:app --reload --host 127.0.0.1 --port 8000
 ```
+- API Docs available at: `http://127.0.0.1:8000/docs`
+- Health check: `curl http://127.0.0.1:8000/`
 
-Potentially an email arrives:
-
-```text
-Guide:
-Focus next on evaluation reliability.
+#### Terminal 2 — Frontend (Next.js)
+```bash
+cd frontend
+npm install
+npm run dev
 ```
+- Web Application available at: `http://localhost:3000`
 
 ---
 
-### Step 4 — User Returns
+### 12.4 Reproducible Flow 1: Two-Developer Conflict Detection & Resolution
 
-Click:
+This test demonstrates the core value proposition: **two developers in different AI tools making contradictory technical decisions, with ContextSwitch detecting and resolving the conflict.**
 
-```text
-RESUME PROJECT
+#### Step 1: Create Team & Project
+You can create these via the Web UI (`http://localhost:3000`) or via `curl`:
+
+```bash
+# 1. Create team
+curl -X POST http://127.0.0.1:8000/teams \
+  -H "Content-Type: application/json" \
+  -d '{"team_id": "team-alpha", "name": "Alpha Engineering"}'
+
+# 2. Create project
+curl -X POST http://127.0.0.1:8000/projects \
+  -H "Content-Type: application/json" \
+  -H "X-User-Email: test@example.com" \
+  -d '{"team_id": "team-alpha", "project_id": "contextswitch", "name": "ContextSwitch"}'
 ```
 
-ContextSwitch displays:
-
+#### Step 2: Developer 1 (Hariharan via Cursor) Logs Decision
+Initialize CLI as Developer 1:
+```bash
+cs init --team team-alpha --project contextswitch --worker hariharan --source cursor
+```
+Log the vector database decision:
+```bash
+cs log "Use ChromaDB because Pinecone is too expensive"
+```
+**Output:**
 ```text
-WELCOME BACK
-
-WHERE YOU LEFT OFF
-
-You were preparing the finance chatbot
-for deployment and improving evaluation.
-
-
-WHILE YOU WERE AWAY
-
-✓ FastAPI deployment layer added
-✓ Evaluation requirements changed
-
-
-OUTDATED TASK
-
-Develop FastAPI API
-
-Reason:
-Already implemented in GitHub.
-
-
-WHAT YOU SHOULD DO NEXT
-
-Expand the evaluation dataset and run
-the RAGAS evaluation suite against the
-new deployment pipeline.
+✓ DECISION logged
+Entry ID: ...
 ```
 
-This is the key demonstration of ContextSwitch.
+#### Step 3: Developer 2 (Jeevan via Claude) Logs Contradictory Decision
+Re-initialize CLI as Developer 2:
+```bash
+cs init --team team-alpha --project contextswitch --worker jeevan --source claude
+```
+Log the contradictory decision:
+```bash
+cs log "Use Pinecone because retrieval quality is better"
+```
+
+**Output:**
+```text
+✓ DECISION logged
+Entry ID: ...
+
+⚠ CONFLICT DETECTED
+Topic: Vector Database Selection
+Side A (hariharan): Use ChromaDB because Pinecone is too expensive
+Side B (jeevan): Use Pinecone because retrieval quality is better
+```
+
+#### Step 4: Verify Conflict on Dashboard & Project Details
+1. Open `http://localhost:3000/dashboard` in your browser.
+2. The **Active Conflicts** banner displays:
+   - **Topic**: `Vector Database Selection`
+   - **Side A**: `hariharan (Cursor)` — *Use ChromaDB because Pinecone is too expensive*
+   - **Side B**: `jeevan (Claude)` — *Use Pinecone because retrieval quality is better*
+3. Click the conflict card to open the resolution dialog.
+
+#### Step 5: Resolve Conflict
+Resolve via the Web UI or via API:
+```bash
+# List conflicts to obtain the conflict_id
+curl http://127.0.0.1:8000/teams/team-alpha/projects/contextswitch/conflicts
+
+# Resolve the conflict
+curl -X POST http://127.0.0.1:8000/teams/team-alpha/projects/contextswitch/conflicts/<CONFLICT_ID>/resolve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resolution": "Use ChromaDB for local MVP development, re-evaluate Pinecone before production deployment.",
+    "resolved_by": "hariharan"
+  }'
+```
+
+#### Step 6: Verify Unified Project Context
+Run:
+```bash
+cs status
+```
+or
+```bash
+cs export
+```
+The active conflict is marked resolved, the decision is updated in shared state, and the rationale is permanently recorded.
 
 ---
 
-# 37. Main Differentiator
+### 12.5 Reproducible Flow 2: Gemini Shared Chat Import & Reasoning Ingestion
 
-ContextSwitch should never be presented simply as:
+This test verifies the Playwright + Gemini extraction pipeline for ingesting public Gemini chat conversations:
 
-> "AI that summarizes your GitHub repository."
-
-The real idea is:
-
-> **ContextSwitch maintains and reconciles project state across interruptions.**
-
-The important equation is:
-
-```text
-Previous Work State
-        +
-New Evidence
-        ↓
-State Transition Reasoning
-        ↓
-Current Work State
-        ↓
-Best Next Action
-```
-
-GitHub, Gmail, Drive and Calendar are evidence sources.
-
-The **work-state reconciliation engine** is the product.
+1. Open `http://localhost:3000/dashboard` and click into your project.
+2. Click **"Import AI Context"** in the top navigation.
+3. Paste any public Gemini share link (e.g., `https://gemini.google.com/share/...`).
+4. Click **"Analyze Chat"**.
+5. The backend launches Playwright, extracts the conversation transcript, and prompts Gemini to categorize decisions, completed items, blockers, failures, and risks.
+6. Check the items you want to adopt into project memory and click **"Approve & Merge"**.
+7. The approved items are instantly reconciled into the shared project state.
 
 ---
 
-# 38. Final Vision
+### 12.6 Reproducible Flow 3: Context Export into Fresh AI Session
 
-ContextSwitch aims to become a persistent AI layer across project tools.
-
-```text
-GitHub ──────┐
-             │
-Gmail ───────┤
-             │
-Drive ───────┼──→ Evidence Layer
-             │          ↓
-Calendar ────┤    Work-State Engine
-             │          ↓
-Docs ────────┘    Current Project State
-                        ↓
-                 ContextSwitch Agent
-                        ↓
-            ┌───────────┼────────────┐
-            ↓           ↓            ↓
-          Resume      Explain      Continue
+1. Run the export command:
+```bash
+cs export
 ```
-
-The long-term goal is simple:
-
-> **A user should never have to manually reconstruct the mental state of a project after being away from it.**
+2. Copy the formatted output.
+3. Open a fresh session in **Cursor, Claude Code, Gemini, Antigravity, or Copilot**.
+4. Paste the export block.
+5. The AI agent immediately knows:
+   - What the project is (`goal`)
+   - What has already been built (`progress`)
+   - Architectural decisions and constraints (`decisions`)
+   - What approaches failed and why (`do not repeat / failures`)
+   - Current blockers (`blockers`)
+   - What to do next (`next_actions`)
 
 ---
 
-## Current Milestone
+## 13. What Has Been Completed
 
-**ContextSwitch now has a functioning end-to-end MVP for GitHub-based project onboarding, persistent snapshots, and project-state reconciliation.**
+### Core Foundation
+- [x] Shared-memory model: Team → Project → Worker
+- [x] Structured project state schemas (Pydantic v2)
+- [x] Google Cloud Firestore persistent storage
+- [x] Member storage & user-isolated dashboard querying
+- [x] Raw team entries & snapshot history
+- [x] Conflict persistence & resolution tracking
+- [x] GitHub connector with evidence normalization and deduplication
 
-The immediate focus should shift from proving the architecture to strengthening the **Resume experience, outdated-task detection, provenance, and multi-source evidence ingestion**.
+### AI Reasoning & Reconciliation
+- [x] Google GenAI SDK & ADK execution runner
+- [x] Team reconciliation prompt engine
+- [x] Automatic cross-worker conflict detection
+- [x] State transition reasoning (progress, decisions, blockers, failures, next actions)
+- [x] Public Gemini Shared-Chat import with Playwright + Gemini extraction
+- [x] Member-wise memory extraction & profiling
+
+### CLI
+- [x] CLI package `cs` with subcommands: `init`, `log`, `done`, `blocked`, `fail`, `status`, `export`
+- [x] Local configuration caching in `.contextswitch`
+- [x] Instant contradiction warnings in CLI output
+
+### Web Application
+- [x] Next.js 16 App Router interface
+- [x] Google OAuth authentication (Auth.js)
+- [x] Protected dashboard connected to real Firestore data
+- [x] Comprehensive Project Details page (`/projects/[team_id]/[project_id]`)
+  - Overview tab (Goal, Progress, Decisions, Blockers, Failures, Next Actions)
+  - People tab (Worker-specific memory and AI tool attribution)
+  - Activity tab (Chronological audit feed)
+  - Conflicts tab (Side-by-side conflict comparison & resolution modal)
+- [x] Create Team, Create Project, and Add Member modals
+- [x] AI Chat Import modal for Gemini share links
+- [x] Light and dark modes with persistent theme toggle
+
+---
+
+## 14. Roadmap & Next Steps
+
+1. **Native IDE Plugins**: Direct plugins for Cursor, VS Code, and JetBrains to automatically log decisions without manual CLI commands.
+2. **Automated Background Sync**: Cloud Scheduler / Pub/Sub workers for continuous GitHub and issue tracking.
+3. **Cloud Run Production Deployment**: Containerize FastAPI backend and deploy to Google Cloud Run with Secret Manager.
+4. **Vector Search / Semantic Retrieval**: Firestore vector search over historical decisions and failed experiments.
+
+---
+
+## Project Tagline
+
+> **Git merges your code. ContextSwitch merges your team's AI reasoning.**

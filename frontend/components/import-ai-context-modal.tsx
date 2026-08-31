@@ -932,155 +932,155 @@ export default function ImportAIContextModal({
               ============================================= */}
 
               <details
-  className="
-    rounded-2xl
-    border
-    border-[#222734]
-    bg-[#11141c]
-  "
->
-  <summary
-    className="
-      cursor-pointer
-      select-none
-      list-none
-      px-5
-      py-4
-      text-sm
-      font-medium
-      text-[#94a3b8]
-      hover:text-white
-      [&::-webkit-details-marker]:hidden
-    "
-  >
-    Advanced extraction
-    options
-  </summary>
-
-  <div
-    className="
-      border-t
-      border-[#222734]
-      p-5
-    "
-  >
-    <div
-      className="
-        mb-4
-        flex
-        items-start
-        gap-3
-        rounded-xl
-        border
-        border-amber-500/20
-        bg-amber-500/5
-        p-4
-      "
-    >
-      <AlertTriangle
-        className="
-          mt-0.5
-          h-4
-          w-4
-          shrink-0
-          text-amber-300
-        "
-      />
-
-      <div>
-        <p
-          className="
-            text-xs
-            font-semibold
-            text-amber-200
-          "
-        >
-          Context extraction
-        </p>
-
-        <p
-          className="
-            mt-1
-            text-[11px]
-            leading-5
-            text-[#b8a978]
-          "
-        >
-          By default,
-          ContextSwitch
-          extracts all
-          useful decisions,
-          assumptions,
-          blockers,
-          failures, risks
-          and next actions.
-        </p>
-      </div>
-    </div>
-
-    <div
-      className="
-        grid
-        gap-2
-        sm:grid-cols-2
-        lg:grid-cols-3
-      "
-    >
-      {EXTRACTION_LABELS.map(
-        ([key, label]) => {
-          const checked =
-            selectedTypes.includes(
-              key
-            );
-
-          return (
-            <button
-              type="button"
-              key={key}
-              onClick={() =>
-                toggleType(key)
-              }
-              className={`
-                flex
-                min-h-11
-                items-center
-                justify-between
-                gap-3
-                rounded-lg
-                border
-                px-3
-                py-2.5
-                text-left
-                text-xs
-
-                ${
-                  checked
-                    ? "border-[#2563eb]/50 bg-[#2563eb]/10 text-white"
-                    : "border-[#2a3040] bg-[#0f1117] text-[#94a3b8] hover:border-[#334155]"
-                }
-              `}
-            >
-              <span>
-                {label}
-              </span>
-
-              {checked && (
-                <CheckCircle2
+                className="
+                  rounded-2xl
+                  border
+                  border-[#222734]
+                  bg-[#11141c]
+                "
+              >
+                <summary
                   className="
-                    h-4
-                    w-4
-                    shrink-0
-                    text-[#38bdf8]
+                    cursor-pointer
+                    select-none
+                    list-none
+                    px-5
+                    py-4
+                    text-sm
+                    font-medium
+                    text-[#94a3b8]
+                    hover:text-white
+                    [&::-webkit-details-marker]:hidden
                   "
-                />
-              )}
-            </button>
-          );
-        }
-      )}
-    </div>
-  </div>
-</details>
+                >
+                  Advanced extraction
+                  options
+                </summary>
+
+                <div
+                  className="
+                    border-t
+                    border-[#222734]
+                    p-5
+                  "
+                >
+                  <div
+                    className="
+                      mb-4
+                      flex
+                      items-start
+                      gap-3
+                      rounded-xl
+                      border
+                      border-amber-500/20
+                      bg-amber-500/5
+                      p-4
+                    "
+                  >
+                    <AlertTriangle
+                      className="
+                        mt-0.5
+                        h-4
+                        w-4
+                        shrink-0
+                        text-amber-300
+                      "
+                    />
+
+                    <div>
+                      <p
+                        className="
+                          text-xs
+                          font-semibold
+                          text-amber-200
+                        "
+                      >
+                        Context extraction
+                      </p>
+
+                      <p
+                        className="
+                          mt-1
+                          text-[11px]
+                          leading-5
+                          text-[#b8a978]
+                        "
+                      >
+                        By default,
+                        ContextSwitch
+                        extracts all
+                        useful decisions,
+                        assumptions,
+                        blockers,
+                        failures, risks
+                        and next actions.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div
+                    className="
+                      grid
+                      gap-2
+                      sm:grid-cols-2
+                      lg:grid-cols-3
+                    "
+                  >
+                    {EXTRACTION_LABELS.map(
+                      ([key, label]) => {
+                        const checked =
+                          selectedTypes.includes(
+                            key
+                          );
+
+                        return (
+                          <button
+                            type="button"
+                            key={key}
+                            onClick={() =>
+                              toggleType(key)
+                            }
+                            className={`
+                              flex
+                              min-h-11
+                              items-center
+                              justify-between
+                              gap-3
+                              rounded-lg
+                              border
+                              px-3
+                              py-2.5
+                              text-left
+                              text-xs
+
+                              ${
+                                checked
+                                  ? "border-[#2563eb]/50 bg-[#2563eb]/10 text-white"
+                                  : "border-[#2a3040] bg-[#0f1117] text-[#94a3b8] hover:border-[#334155]"
+                              }
+                            `}
+                          >
+                            <span>
+                              {label}
+                            </span>
+
+                            {checked && (
+                              <CheckCircle2
+                                className="
+                                  h-4
+                                  w-4
+                                  shrink-0
+                                  text-[#38bdf8]
+                                "
+                              />
+                            )}
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                </div>
+              </details>
 
               {/* =============================================
                   ERROR
